@@ -76,7 +76,8 @@ this.viewModel = function() {
         proxy: {
             'proxyClientHost': 'proxy.client.host',
             'proxyClientPort': 'proxy.client.port',
-            'proxyClientEnable': 'proxy.client.enable'
+            'proxyClientEnable': 'proxy.client.enable',
+            'proxyClientEnableLoginUseProxy': 'proxy.client.enableLoginUseProxy'
         }
     };
     self.settingsInitialized = ko.observable(false);
