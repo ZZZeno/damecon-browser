@@ -569,7 +569,7 @@ class Browser {
           nodeIntegrationInWorker: true
           //, enableRemoteModule: true
         },
-        icon: path.join(__dirname, 'icon.ico')
+        icon: path.join(__dirname, 'kancolle_logo.ico')
       },
     })
     win.window.on('resize', () => {

@@ -38,13 +38,14 @@
       "*.js",
       "*.ts",
       "browser",
-      "icon.ico"
+      "icon.ico",
+      "kancolle_logo.ico"
     ],
     "extraFiles": [],
     "win": {
       "artifactName": "${name}-${version}-${os}.${ext}",
       "executableName": "damecon-browser",
-      "icon": "icon.ico",
+      "icon": "kancolle_logo.ico",
       "target": [
         {
           "target": "zip",
@@ -55,7 +56,7 @@
       ]
     },
     "linux": {
-      "icon": "icon.ico",
+      "icon": "kancolle_logo.ico",
       "target": [
         {
           "target": "zip",
@@ -66,12 +67,12 @@
       ]
     },
     "mac": {
-      "icon": "icon.ico",
+      "icon": "kancolle_logo.ico",
       "target": [
         {
           "target": "zip",
           "arch": [
-            "x64"
+            "arm64"
           ]
         }
       ]

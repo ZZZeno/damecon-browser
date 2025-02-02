@@ -15,16 +15,21 @@ exports.default = async function (context) {
     if (unpack_dir) {
         console.log("\n- [Damecon] Copy extensions to unpacked build...\n");
 
-        if (env === 'darwin') {
-            fs.mkdirSync('./build/' + unpack_dir + '/Damecon.app/Contents/extensions')
-            fs.cpSync('../../extensions/uBlock', './build/' + unpack_dir + '/Damecon.app/Contents/extensions/uBlock', {recursive: true})
-            fs.cpSync('../../extensions/stylus', './build/' + unpack_dir + '/Damecon.app/Contents/extensions/stylus', {recursive: true})
-            fs.cpSync('../../extensions/Violentmonkey', './build/' + unpack_dir + '/Damecon.app/Contents/extensions/Violentmonkey', {recursive: true})
-        } else {
-            fs.mkdirSync('./build/' + unpack_dir + '/extensions')
-            fs.cpSync('../../extensions/uBlock', './build/' + unpack_dir + '/extensions/uBlock', {recursive: true})
-            fs.cpSync('../../extensions/stylus', './build/' + unpack_dir + '/extensions/stylus', {recursive: true})
-            fs.cpSync('../../extensions/Violentmonkey', './build/' + unpack_dir + '/extensions/Violentmonkey', {recursive: true})
-        }
+        const extensions = ['uBlock', 'stylus', 'Violentmonkey'];
+        const basePath = '../../extensions/';
+
+        extensions.forEach(extension => {
+            const sourcePath = `${basePath}${extension}`;
+            const destPath = env === 'darwin' 
+                ? `./build/${unpack_dir}/Damecon.app/Contents/extensions/${extension}`
+                : `./build/${unpack_dir}/extensions/${extension}`;
+
+            if (fs.existsSync(sourcePath)) {
+                fs.mkdirSync(destPath, { recursive: true });
+                fs.cpSync(sourcePath, destPath, { recursive: true });
+            } else {
+                console.error(`Extension directory not found: ${sourcePath}`);
+            }
+        });
     }
 }
