@@ -44,7 +44,37 @@ const defaultConfig = {
     }
   }
 }
-const config = new ConfigStore('damecon-browser', defaultConfig, {globalConfigPath: true});
+
+// Initialize config before anything else
+const initConfig = () => {
+  if (process.execPath.match(/(damecon(-browser)?|chrome)/)) {
+    const currPath = path.dirname(process.execPath)
+    const userDataPath = path.join(currPath, 'userdata')
+    console.log('Setting userData path to:', userDataPath)
+    app.setPath('userData', userDataPath)
+    
+    // Ensure the userdata directory exists
+    if (!fsSync.existsSync(userDataPath)) {
+      fsSync.mkdirSync(userDataPath, { recursive: true })
+    }
+  } else {
+    const devUserDataPath = path.join(app.getPath('appData'), 'damecon-dev')
+    console.log('Development mode: Setting userData path to:', devUserDataPath)
+    app.setPath('userData', devUserDataPath)
+  }
+
+  const configPath = path.join(app.getPath('userData'), 'config.json');
+  if (fsSync.existsSync(configPath)) {
+    // Ensure the config file is readable/writable
+    fsSync.chmodSync(configPath, 0o666);
+  }
+
+  return new ConfigStore('damecon-browser', defaultConfig, {
+    globalConfigPath: false
+  });
+}
+
+const config = initConfig();
 
 const rootPath = app.isPackaged ? app.getAppPath() : __dirname;
 const browserPath = app.isPackaged ? path.join(app.getAppPath(), 'browser') : __dirname;
@@ -331,6 +361,8 @@ class Browser {
 
 
   async init() {
+    // Verify config is working
+    console.log('Current config:', config.all)
     this.initSession()
     setupMenu(this)
 
@@ -556,36 +588,58 @@ class Browser {
 
   createWindow(options) {
     const windowState = config.get('window.state');
+    const platform = process.platform;
+
+    // Base window options
+    const windowOptions = {
+      width: windowState?.width || defaultConfig.window.state.width,
+      height: windowState?.height || defaultConfig.window.state.height,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegrationInWorker: true
+      },
+      icon: path.join(__dirname, 'kancolle_logo.ico')
+    };
+
+    // Platform-specific window options
+    if (platform === 'darwin') {
+      // macOS style
+      Object.assign(windowOptions, {
+        frame: true,
+        titleBarStyle: 'hiddenInset', // This gives the native macOS traffic lights
+      });
+    } else {
+      // Windows/Linux style
+      Object.assign(windowOptions, {
+        frame: false,
+        titleBarOverlay: {
+          color: '#f5f5f5',
+          symbolColor: '#5f6368',
+          height: 30
+        }
+      });
+    }
 
     const win = new TabbedBrowserWindow({
       ...options,
       extensions: this.extensions,
-      window: {
-        width: windowState?.width || defaultConfig.window.state.width,
-        height: windowState?.height || defaultConfig.window.state.height,
-        frame: false,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegrationInWorker: true
-          //, enableRemoteModule: true
-        },
-        icon: path.join(__dirname, 'kancolle_logo.ico')
-      },
-    })
+      window: windowOptions,
+    });
+
     win.window.on('resize', () => {
       if (win.window.isMaximized()) return;
-      const size = win.window.getSize()
+      const size = win.window.getSize();
       config.set('window.state.width', size[0]);
       config.set('window.state.height', size[1]);
-    })
+    });
 
-    this.windows.push(win)
+    this.windows.push(win);
 
     if (process.env.SHELL_DEBUG) {
-      win.webContents.openDevTools({ mode: 'detach' })
+      win.webContents.openDevTools({ mode: 'detach' });
     }
 
-    return win
+    return win;
   }
 
   async onWebContentsCreated(event, webContents) {
