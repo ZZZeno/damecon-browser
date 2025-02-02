@@ -327,9 +327,11 @@ class Browser {
     app.whenReady().then(this.init.bind(this))
 
     app.on('window-all-closed', () => {
-      if (process.platform !== 'darwin') {
-        this.destroy()
+      // On macOS, hide the dock icon then quit when no windows remain
+      if (process.platform === 'darwin') {
+        app.dock.hide();
       }
+      app.quit();
     })
 
     app.on('web-contents-created', this.onWebContentsCreated.bind(this))
