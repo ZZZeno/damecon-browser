@@ -34,3 +34,30 @@ export const injectIpc = () => {
     window.ipc = ipc
   }
 }
+
+// The agent API is deliberately exposed only on the built-in agent page.  It
+// has no route to arbitrary webpages and all reads are checked again in main.
+export const injectAgentApi = () => {
+  const request = (operation, args = {}) =>
+    ipcRenderer.invoke('agent-api-read', { operation, args })
+  const callTool = (name, args = {}) =>
+    ipcRenderer.invoke('agent-api-read', { operation: 'call-tool', name, args })
+  const api = {
+    listTools: () => request('list-tools'),
+    callTool: (name, args) => callTool(name, args),
+    getSnapshot: () => callTool('damecon_get_snapshot'),
+    getFleets: () => callTool('damecon_get_fleets'),
+    getEquipment: (filters) => callTool('damecon_get_equipment', filters),
+    getLandBases: () => callTool('damecon_get_land_bases'),
+    getImprovements: (filters) => callTool('damecon_get_improvements', filters),
+    getQuests: (filters) => callTool('damecon_get_quests', filters),
+    getSchema: () => callTool('damecon_get_schema'),
+    health: () => callTool('damecon_health'),
+  }
+  try {
+    contextBridge.exposeInMainWorld('dameconAgent', api)
+  } catch (error) {
+    console.warn('preload-ipc', 'Unable to expose dameconAgent.', error)
+    window.dameconAgent = api
+  }
+}

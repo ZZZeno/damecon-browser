@@ -16,6 +16,7 @@ import {
   webFrameMain,
   protocol,
   shell,
+  webContents,
 } from 'electron'
 import { EventEmitter } from 'events'
 
@@ -72,6 +73,7 @@ import {
   installKccpGitMod,
   updateKccpGitMod,
 } from './kccp-integration.js'
+const { createAgentApiIntegration } = require('./agent-api/integration.js')
 
 const logSource = 'damecon-browser'
 
@@ -787,6 +789,17 @@ class Browser extends EventEmitter {
     newTabUrl = webuiBase + '/new-tab.html'
     settingsUrl = webuiBase + '/settings.html'
     searchUrl = webuiBase + '/search.html'
+
+    // Browser-native, read-only agent API. The integration performs a strict
+    // sender-frame check, so arbitrary webpages cannot invoke this handler.
+    this.agentApi = createAgentApiIntegration({
+      ipcMain,
+      webuiExtensionId,
+      getWebContents: () => webContents.getAllWebContents().filter((contents) => contents.session === this.session),
+      getKc3ExtensionId: () => kc3ExtensionId,
+      getExtensionPath: () => this.currentKc3ExtensionPath || this.getKc3Path(),
+      getExtensionVersion: () => kc3ExtensionId ? this.session.getExtension(kc3ExtensionId)?.version || null : null,
+    })
 
     const initialWindow = this.createTabbedWindow({
       initialUrls: [settingsUrl],
@@ -2019,6 +2032,7 @@ class Browser extends EventEmitter {
     // open KC3 start page
     kc3ExtensionId = kc3.id
     this.currentKc3ExtensionId = kc3ExtensionId
+    this.currentKc3ExtensionPath = kc3Path
 
     kc3StartPageUrl = 'chrome-extension://' + kc3ExtensionId + '/pages/game/direct.html'
     //DMMPageUrl = 'https://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/'

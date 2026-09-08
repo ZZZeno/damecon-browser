@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Damecon Agent API</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font:
+          14px system-ui,
+          sans-serif;
+      }
+      body {
+        margin: 24px;
+        background: #202124;
+        color: #e8eaed;
+      }
+      button {
+        margin: 0 6px 8px 0;
+        padding: 6px 10px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow: auto;
+        max-height: 75vh;
+        padding: 12px;
+        background: #17181a;
+      }
+      #status {
+        color: #a8c7fa;
+        margin: 8px 0 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Damecon Agent API</h1>
+    <p>本页面只读 KC3 当前内存状态。浏览器自动化可在此页调用 <code>window.dameconAgent</code>。</p>
+    <div>
+      <button data-operation="health">Health</button>
+      <button data-operation="snapshot">Snapshot</button>
+      <button data-operation="fleets">Fleets</button>
+      <button data-operation="landBases">Land bases</button>
+      <button data-operation="equipment">Equipment</button>
+      <button data-operation="improvements">Improvements</button>
+      <button data-operation="quests">Quests</button>
+      <button data-operation="schema">Schema</button>
+      <button data-operation="tools">Tools</button>
+    </div>
+    <div id="status">Ready</div>
+    <pre id="output">点击按钮读取当前数据。</pre>
+    <script src="./agent.js"></script>
+  </body>
+</html>

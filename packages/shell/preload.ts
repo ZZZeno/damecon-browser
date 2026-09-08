@@ -1,5 +1,5 @@
 import { injectBrowserAction } from 'electron-chrome-extensions/browser-action'
-import { injectIpc } from './preload-ipc.js'
+import { injectIpc, injectAgentApi } from './preload-ipc.js'
 import { contextBridge } from 'electron'
 
 console.log('Trying to inject into', location.pathname)
@@ -10,9 +10,11 @@ const localPages = [
   '/_generated_background_page.html',
   '/webui.html',
   '/search.html',
+  '/agent.html',
 ]
 if (location.protocol === 'chrome-extension:' && localPages.includes(location.pathname)) {
   console.log('Successfully injected into', location.pathname)
   injectBrowserAction()
   injectIpc()
+  if (location.pathname === '/agent.html') injectAgentApi()
 }

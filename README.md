@@ -151,6 +151,10 @@ New Tab launch page:
 - [ ] Link hover URL tooltips
 - [x] Find in page (Ctrl+F)
 
+### Read-only browser agent API
+
+Damecon includes a built-in `agent.html` page for browser automation to read the current KC3 state through `window.dameconAgent`. The API is browser-native and read-only: it does not start an HTTP server, expose a port or token, issue game requests, or modify KC3 files. See [docs/agent-api.md](docs/agent-api.md) for the page URL, methods, filters, and envelope/status rules.
+
 ### 🤞 Eventually
 
 - [ ] Extension management (enable/disable/uninstall)
