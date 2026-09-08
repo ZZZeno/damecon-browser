@@ -8,7 +8,7 @@
   <script type="text/javascript" src="assets/js/jquery-3.3.1.min.js"></script>
   <script type="text/javascript" src="assets/js/popper.min.js"></script>
   <script type="text/javascript" src="assets/js/bootstrap.min.js"></script>
-  <script type="text/javascript" src="assets/js/fontawesome.js" defer></script>
+  <link rel="stylesheet" href="assets/css/all.min.css" />
 
   <script type="text/javascript" src="assets/js/knockout-3.5.1.js"></script>
   <script type="text/javascript" src="assets/js/knockout-i18n.js"></script>
@@ -345,6 +345,7 @@
       <div class="form-group">
         <!-- ko if: !config.kc3kai.update.channel()?.startsWith('custom') -->
         <button class="btn btn-secondary" type="button" data-bind="click: kc3CheckForUpdates, enable: canUpdateKc3">Check for updates & reload</button>
+        <button class="btn btn-outline-secondary btn-sm ml-2" type="button" data-bind="click: kc3UpdateTranslations, enable: canUpdateTranslations">Update translations</button>
         <!-- /ko -->
         <!-- ko if: config.kc3kai.update.channel()?.startsWith('custom') -->
         <button class="btn btn-secondary" type="button" data-bind="click: kc3CheckForUpdates, enable: canUpdateKc3">Reload</button>

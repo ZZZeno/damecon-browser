@@ -1,5 +1,5 @@
 import path from 'path'
-import fsSync, { utimesSync } from 'fs'
+import fsSync, { promises as fs, utimesSync } from 'fs'
 const https = require('https')
 const { Readable } = require('stream')
 import {
@@ -18,6 +18,12 @@ import {
   shell,
 } from 'electron'
 import { EventEmitter } from 'events'
+
+const {
+  createSiblingTemporaryDirectory,
+  replaceDirectoryAtomically,
+  validateReleaseDirectory,
+} = require('./workers/kc3-release-utils.js')
 
 if (require('electron-squirrel-startup')) app.quit()
 app.setAppUserModelId('net.tsunkit.damecon')
@@ -105,7 +111,7 @@ if (app.commandLine.hasSwitch('config-path')) {
   if (!path.extname(cfgPath)) cfgPath = path.join(cfgPath, 'config.json')
   cfgOpts.configPath = cfgPath
 } else if (app.isPackaged) {
-  cfgOpts.configPath = path.join(appDir, 'config.json')
+  cfgOpts.configPath = path.join(process.platform === 'darwin' ? appDataDir : appDir, 'config.json')
   console.log('Config path: ', hideHome(cfgOpts.configPath))
 } else {
   cfgOpts.globalConfigPath = true
@@ -198,6 +204,9 @@ const PATHS = {
   PRELOAD: path.join(__dirname, '../renderer/browser/preload.js'),
   LOCAL_EXTENSIONS: path.join(dataPath, 'extensions'),
   KC3_EXTENSIONS: path.join(dataPath, 'extensions'),
+  BUNDLED_EXTENSIONS: app.isPackaged
+    ? path.join(process.resourcesPath, 'extensions')
+    : path.join(ROOT_DIR, 'extensions'),
   //KC3_EXTENSIONS: path.join(ROOT_DIR, 'ext_kc3kai'),
 }
 
@@ -205,6 +214,28 @@ kccp.logger.log(logSource, `Is packaged: ${app.isPackaged}`)
 console.log(`SHELL_ROOT_DIR: ${SHELL_ROOT_DIR}`)
 console.log(`ROOT_DIR: ${ROOT_DIR}`)
 console.log(`PATHS:`, PATHS)
+
+const seedBundledKc3Release = async () => {
+  if (!app.isPackaged || process.platform !== 'darwin') return
+  const source = path.join(PATHS.BUNDLED_EXTENSIONS, 'kc3kai-release')
+  const destination = path.join(PATHS.KC3_EXTENSIONS, 'kc3kai-release')
+  try {
+    await validateReleaseDirectory(destination)
+    return
+  } catch (error) {
+    // A partial first-run copy is replaced only after a complete new copy validates.
+  }
+  await validateReleaseDirectory(source)
+  const stagingRoot = await createSiblingTemporaryDirectory(destination, 'seed')
+  const stagingDirectory = path.join(stagingRoot, 'release')
+  try {
+    await fs.cp(source, stagingDirectory, { recursive: true, force: false })
+    await validateReleaseDirectory(stagingDirectory)
+    await replaceDirectoryAtomically(stagingDirectory, destination)
+  } finally {
+    await fs.rm(stagingRoot, { recursive: true, force: true })
+  }
+}
 
 // only allow one instance to run for now
 if (!app.requestSingleInstanceLock()) {
@@ -345,9 +376,13 @@ class TabbedBrowserWindow {
         const startDevTools = async () => {
           const delaySeconds = configStore.get('kc3kai.startup.openDevtoolsDelay') || 0
           await delay(delaySeconds * 1000)
-          tab.webContents.openDevTools({ activate: true })
+          const contents = tab.webContents
+          if (!contents || contents.isDestroyed()) return
+          contents.openDevTools({ activate: true })
         }
-        startDevTools()
+        startDevTools().catch((error) =>
+          kccp.logger.error(logSource, 'Unable to open DevTools', error),
+        )
         //tab.webContents.openDevTools({ activate: true })
       }
     })
@@ -530,6 +565,7 @@ class Browser extends EventEmitter {
   async init() {
     this.initSession()
     setupMenu(this)
+    await seedBundledKc3Release()
 
     app.on('browser-window-focus', () => {
       const fWin = () => this.getFocusedWindow()
@@ -855,6 +891,12 @@ class Browser extends EventEmitter {
         case 'kc3-doupdate':
           await this.updateKc3(configStore.get('kc3kai.update.channel'))
           break
+        case 'kc3-doupdate-translations':
+          await this.updateTranslations(configStore.get('kc3kai.update.channel'))
+          break
+        case 'kc3-translations-get-isupdating':
+          result = { isUpdating: this.translationsIsUpdating ?? false }
+          break
         case 'kccp-modder-doupdate':
           await this.updateKccpMods()
           break
@@ -909,7 +951,9 @@ class Browser extends EventEmitter {
           let location = 'unknown'
           try {
             if (data?.builtIn) {
-              location = path.join(ROOT_DIR, 'resources/minimum-cache.zip')
+              location = app.isPackaged
+                ? path.join(process.resourcesPath, 'minimum-cache.zip')
+                : path.join(SHELL_ROOT_DIR, '../kccacheproxy/minimum-cache.zip')
               await kccpCacheHandler.mergeCache(location)
             } else {
               const response = await dialog.showOpenDialog({
@@ -1087,7 +1131,8 @@ class Browser extends EventEmitter {
     this.updateWorker = new updateWorker()
     this.updateWorker.on('message', this.handleWorkerMessage.bind(this))
 
-    await this.updateKc3IfScheduled()
+    await this.checkStartKc3(this.getKc3Path())
+    void this.updateKc3IfScheduled(true)
 
     // Init KCCP
     this.setProxyHandler()
@@ -1266,8 +1311,13 @@ class Browser extends EventEmitter {
         this.kccpModderIsUpdating = msg.data.isUpdating
         this.sendToAllWindows(msg.type, msg.data)
         break
+      case 'status-translations-is-updating':
+        this.translationsIsUpdating = msg.data.isUpdating
+        this.sendToAllWindows(msg.type, msg.data)
+        break
       case 'error-do-kc3-update':
       case 'error-do-kccp-modder-update':
+      case 'error-do-translations-update':
       case 'update-process-started':
       case 'update-process-progress':
         this.sendToAllWindows(msg.type, msg.data)
@@ -1275,16 +1325,37 @@ class Browser extends EventEmitter {
       case 'update-process-completed':
         this.sendToAllWindows(msg.type, msg.data)
 
+        const currentChannel = configStore.get('kc3kai.update.channel')
+        if (msg.data.name === 'KC3 Update') {
+          if (
+            msg.data.success === true &&
+            currentChannel === msg.data.channel &&
+            !msg.data.channel.startsWith('custom')
+          )
+            configStore.set('kc3kai.update.time.' + msg.data.channel, Date.now())
+          if (
+            msg.data.success !== true ||
+            currentChannel !== msg.data.channel ||
+            (!msg.data.changed && !msg.data.channel.startsWith('custom'))
+          )
+            return
+        }
+        if (
+          msg.data.name === 'Translation Update' &&
+          (msg.data.success !== true || !msg.data.changed || currentChannel !== msg.data.channel)
+        )
+          return
+
         if (msg.data.name === 'KC3 Update') {
           const kc3Path = this.getKc3Path()
           if (!kc3Path) {
             //console.log('No kc3 path provided.')
             return
           }
-          const channel = this.kc3UpdatingChannel
-          if (!channel.startsWith('custom'))
-            configStore.set('kc3kai.update.time.' + channel, Date.now())
           await this.checkStartKc3(kc3Path)
+        } else if (msg.data.name === 'Translation Update') {
+          const kc3Path = this.getKc3Path()
+          if (kc3Path) await this.checkStartKc3(kc3Path)
         } else if (msg.data.name === 'KCCP Mod Update') {
           kccp.logger.log(kccp.kccpLogSource, 'Finished updating KCCP mods.')
           await startStopKccp(configStore)
@@ -1481,9 +1552,13 @@ class Browser extends EventEmitter {
             const startDevTools = async () => {
               const delaySeconds = configStore.get('kc3kai.startup.openDevtoolsDelay') || 0
               await delay(delaySeconds * 1000)
-              tab.webContents.openDevTools({ activate: true })
+              const contents = tab.webContents
+              if (!contents || contents.isDestroyed()) return
+              contents.openDevTools({ activate: true })
             }
-            startDevTools()
+            startDevTools().catch((error) =>
+              kccp.logger.error(logSource, 'Unable to open DevTools', error),
+            )
             //tab.webContents.openDevTools({ activate: true })
           }
 
@@ -1845,7 +1920,7 @@ class Browser extends EventEmitter {
     return kc3Path
   }
 
-  async updateKc3IfScheduled() {
+  async updateKc3IfScheduled(alreadyStarted = false) {
     // update if configured schedule warrants it
     const currentChannel = configStore.get('kc3kai.update.channel')
     const canUpdate = !currentChannel.startsWith('custom')
@@ -1872,10 +1947,11 @@ class Browser extends EventEmitter {
     if (doUpdate) {
       await delay(1000)
       await this.updateKc3(currentChannel)
-    } else {
+    } else if (!alreadyStarted) {
       const kc3Path = this.getKc3Path()
       await this.checkStartKc3(kc3Path)
     }
+    if (!doUpdate && canUpdate) await this.updateTranslations(currentChannel)
   }
 
   async updateKccpMods() {
@@ -1890,6 +1966,13 @@ class Browser extends EventEmitter {
   async updateKc3(channel) {
     this.updateWorker.postMessage({
       type: 'do-kc3-update',
+      data: { path: PATHS.KC3_EXTENSIONS, channel },
+    })
+  }
+
+  async updateTranslations(channel) {
+    this.updateWorker.postMessage({
+      type: 'do-translations-update',
       data: { path: PATHS.KC3_EXTENSIONS, channel },
     })
   }

@@ -5,6 +5,7 @@ import KCCPModUpdater from './kccpmodupdater'
 
 let isKc3Updating = false
 let isKccpModderUpdating = false
+let isTranslationsUpdating = false
 let kc3Channel
 
 let kc3Updater = new KC3Updater()
@@ -37,13 +38,24 @@ parentPort.on('message', async (msg) => {
     case 'do-kccp-modder-update':
       await doUpdateKccpModder(msg.data.config)
       break
+    case 'get-is-translations-updating':
+      parentPort.postMessage({
+        type: 'status-translations-is-updating',
+        data: { isUpdating: isTranslationsUpdating },
+      })
+      break
+    case 'do-translations-update':
+      if (!msg.data || !msg.data.path || !msg.data.channel)
+        throw new Error('do-translations-update data must be in the format { path, channel }')
+      await doUpdateTranslations(msg.data.path, msg.data.channel)
+      break
     default:
       throw new Error(`Unknown message type ${msg.type}`)
   }
 })
 
 const doUpdateKc3 = async function (extensionsPath, updateChannel) {
-  if (isKc3Updating) {
+  if (isKc3Updating || isTranslationsUpdating) {
     parentPort.postMessage({ type: 'error-do-kc3-update', data: 'Update already in progress.' })
     return
   }
@@ -56,11 +68,42 @@ const doUpdateKc3 = async function (extensionsPath, updateChannel) {
 
   try {
     await kc3Updater.update(extensionsPath, updateChannel)
+  } catch (error) {
+    console.error('KC3 update failed:', error)
+    parentPort.postMessage({ type: 'error-do-kc3-update', data: error.message })
   } finally {
     isKc3Updating = false
     parentPort.postMessage({
       type: 'status-kc3-is-updating',
       data: { isUpdating: isKc3Updating, channel: kc3Channel },
+    })
+  }
+  if (updateChannel === 'release') await doUpdateTranslations(extensionsPath, updateChannel)
+}
+
+const doUpdateTranslations = async function (extensionsPath, channel) {
+  if (isTranslationsUpdating || isKc3Updating) {
+    parentPort.postMessage({
+      type: 'error-do-translations-update',
+      data: 'Update already in progress.',
+    })
+    return
+  }
+  isTranslationsUpdating = true
+  parentPort.postMessage({
+    type: 'status-translations-is-updating',
+    data: { isUpdating: isTranslationsUpdating },
+  })
+  try {
+    await kc3Updater.updateTranslations(extensionsPath, channel)
+  } catch (error) {
+    console.error('Translation update failed:', error)
+    parentPort.postMessage({ type: 'error-do-translations-update', data: error.message })
+  } finally {
+    isTranslationsUpdating = false
+    parentPort.postMessage({
+      type: 'status-translations-is-updating',
+      data: { isUpdating: isTranslationsUpdating },
     })
   }
 }

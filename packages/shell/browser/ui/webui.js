@@ -279,8 +279,10 @@ class WebUI {
     if (msg.type.startsWith('webui-log')) return
     switch (msg.type) {
       case 'status-kc3-is-updating':
+      case 'status-translations-is-updating':
       case 'status-kccp-modder-is-updating':
       case 'error-do-kc3-update':
+      case 'error-do-translations-update':
       case 'error-do-kccp-modder-update':
       case 'update-process-started':
       case 'update-process-progress':

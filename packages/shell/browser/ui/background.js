@@ -59,6 +59,8 @@ const receiveFromRenderer = async function(msg) {
     case 'kccp-convert-poi':
     case 'kccp-log-get-recent':
     case 'kc3-doupdate':
+    case 'kc3-doupdate-translations':
+    case 'kc3-translations-get-isupdating':
     case 'kc3-get-isupdating':
     case 'kc3-select-custom-location':
     case 'select-custom-data-location':

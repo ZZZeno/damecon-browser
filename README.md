@@ -46,6 +46,28 @@ yarn
 yarn start
 ```
 
+### macOS standalone build
+
+On macOS, use Node.js 20 or >=22 and Yarn 1. Install dependencies and initialize the proxy submodule before building:
+
+```bash
+git submodule update --init --recursive
+yarn install --frozen-lockfile
+yarn build:mac
+```
+
+`yarn build:mac` creates a standalone `.pkg` by default for the host architecture. Use `--format app`, `--format pkg`, `--format dmg`, or `--format all`; use `--arch x64` or `--arch arm64` to select an architecture. The outputs are written to `packages/shell/out/damecon-browser-darwin-<arch>/damecon-browser.app`, `packages/shell/out/make/pkg/<arch>/damecon-browser-<version>-<arch>.pkg`, and `packages/shell/out/make/damecon-browser-<version>-<arch>.dmg`. The `.pkg` installs the app in `/Applications`, and the installed standalone app runs without Node.js or Yarn.
+
+For example:
+
+```bash
+yarn build:mac --format dmg
+yarn build:mac --format app
+yarn build:mac --format all --arch x64
+```
+
+The build requires a prepared local `packages/kccacheproxy/minimum-cache.zip`; the upstream cache build scripts can generate it. A local KC3Kai seed at `extensions/kc3kai-release` must contain `manifest.json` and `data/lang/data/en/terms.json`. If the seed is missing, extract a KC3Kai release zip into that directory. The app includes all locale trees present in the supplied KC3Kai release (19 in the current snapshot); on first launch, the runtime copies the bundled release into the writable user data directory, then fetches updates in the background and keeps the seed as a fallback if fetching fails. The app is locally ad-hoc signed; installer packages and disk images are unsigned and not notarized, so use local builds for local installation and testing.
+
 ### 🔌 Install extensions
 
 Unpacked extensions inside `./extensions` will be loaded automatically.

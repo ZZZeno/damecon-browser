@@ -17,8 +17,8 @@ class ProcessTracker {
       this.processProgress(this.name, ev.phase, ev.loaded, ev.total, ev.type)
   }
 
-  complete() {
-    if (this.processCompleted) this.processCompleted(this.name)
+  complete(result = {}) {
+    if (this.processCompleted) this.processCompleted(this.name, result)
   }
 }
 

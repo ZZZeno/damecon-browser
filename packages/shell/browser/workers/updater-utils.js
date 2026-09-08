@@ -10,18 +10,18 @@ const onUpdateProgress = function (name, phase, current, total, type) {
     data: { name, phase, current, total, type },
   })
 }
-const onUpdateCompleted = function (name) {
-  parentPort.postMessage({ type: 'update-process-completed', data: { name } })
+const onUpdateCompleted = function (name, result = {}) {
+  parentPort.postMessage({ type: 'update-process-completed', data: { name, ...result } })
 }
 
 const fetchWithProgress = async function (url, onProgress) {
-  const res = await fetch(url)
+  const signal = AbortSignal.timeout(30000)
+  const res = await fetch(url, { signal })
 
   if (!res.ok) {
-    throw new Error({
-      message: `Failed to fetch ${url}: ${res.status} ${res.statusText}`,
-      status: res.status,
-    })
+    const error = new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`)
+    error.status = res.status
+    throw error
   }
 
   const totalSize = Number(res.headers.get('content-length')) || 0

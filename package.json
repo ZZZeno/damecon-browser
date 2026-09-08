@@ -26,7 +26,9 @@
     "test:extensions": "yarn --cwd ./packages/electron-chrome-extensions test",
     "prepare": "husky",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css}\"",
-    "generate-noncompliant": "cat noncompliant.txt | awk '{print tolower($0)}' | xargs -I {} node ./scripts/generate-hash.js {}"
+    "generate-noncompliant": "cat noncompliant.txt | awk '{print tolower($0)}' | xargs -I {} node ./scripts/generate-hash.js {}",
+    "make": "yarn --cwd ./packages/shell make",
+    "build:mac": "bash ./scripts/build-mac.sh"
   },
   "license": "GPL-3.0",
   "author": "Samuel Maddock <sam@samuelmaddock.com>",

@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'fs'
 const fsAsync = fs.promises
 import { Readable } from 'stream'
-import { finished } from 'stream/promises'
+import { pipeline } from 'stream/promises'
 import AdmZip from 'adm-zip'
 import git from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
@@ -13,6 +13,14 @@ import {
   onUpdateCompleted,
   fetchWithProgress,
 } from './updater-utils.js'
+
+const {
+  createSiblingTemporaryDirectory,
+  findTranslationsDataDirectory,
+  replaceDirectoryAtomically,
+  validateReleaseDirectory,
+  validateTranslationsDataDirectory,
+} = require('./kc3-release-utils.js')
 
 let self
 
@@ -111,7 +119,7 @@ class KC3Updater {
     }
 
     const dir = path.join(extensionsPath, 'kc3kai-' + channel)
-    const langPath = 'src/data/lang'
+    const langPath = channel === 'release' ? 'data/lang' : 'src/data/lang'
     const langDir = path.join(dir, langPath)
     let cache = {}
 
@@ -121,9 +129,13 @@ class KC3Updater {
       throw new Error(`kc3updater.js: Invalid update channel ${channel}`)
 
     let updateProcess = self.newProcess('KC3 Update')
+    let success = false
+    let changed = false
     try {
       if (channel.startsWith('custom')) {
         console.log('kc3updater.js: Using custom update channel; skipping update check.')
+        success = true
+        changed = true
         return
       } else if (channel == 'release') {
         const updateCheckProcess = self.newProcess('Checking for updates')
@@ -150,18 +162,11 @@ class KC3Updater {
           console.log('kc3updater.js: Already up to date.')
         } else {
           const zipProcess = self.newProcess('Downloading release ' + latestVersion)
+          let stagingRoot
           try {
-            if (fs.existsSync(dir)) {
-              try {
-                fs.rmdirSync(dir, { recursive: true, force: true })
-              } catch (err) {}
-            }
-            try {
-              fs.mkdirSync(dir)
-            } catch (err) {}
-
-            const zipFilename = 'kc3kai-release-' + latestVersion + '.zip'
-            const zipFilePath = path.join(dir, zipFilename)
+            stagingRoot = await createSiblingTemporaryDirectory(dir, 'release')
+            const stagingDirectory = path.join(stagingRoot, 'extension')
+            const zipFilePath = path.join(stagingRoot, 'kc3kai-release-' + latestVersion + '.zip')
             let totalBytes = 0
             try {
               const readable = await fetchWithProgress(downloadUrl, (loaded, total) => {
@@ -169,7 +174,7 @@ class KC3Updater {
                 zipProcess.progress({ phase: 'Downloading', loaded, total, type: 'bytes' })
               })
               const stream = fs.createWriteStream(zipFilePath, { flags: 'wx' })
-              await finished(readable.pipe(stream))
+              await pipeline(readable, stream)
             } catch (err) {
               if (err?.status === 404) {
                 console.error(
@@ -178,7 +183,7 @@ class KC3Updater {
               } else {
                 console.error('kc3updater.js: Error downloading release zip:', err)
               }
-              return
+              throw err
             }
 
             zipProcess.progress({
@@ -188,7 +193,10 @@ class KC3Updater {
               type: 'bytes',
             })
             var zip = new AdmZip(zipFilePath)
-            zip.extractAllTo(dir, true)
+            zip.extractAllTo(stagingDirectory, true)
+            await validateReleaseDirectory(stagingDirectory)
+            await fsAsync.writeFile(path.join(stagingDirectory, 'release'), latestVersion)
+            await replaceDirectoryAtomically(stagingDirectory, dir)
 
             zipProcess.progress({
               phase: 'Cleaning up',
@@ -196,11 +204,9 @@ class KC3Updater {
               total: totalBytes,
               type: 'bytes',
             })
-            try {
-              fs.rmSync(zipFilePath)
-            } catch (err) {}
-            fs.writeFileSync(releaseFile, latestVersion)
+            changed = true
           } finally {
+            if (stagingRoot) await fsAsync.rm(stagingRoot, { recursive: true, force: true })
             zipProcess.complete()
           }
         }
@@ -226,6 +232,7 @@ class KC3Updater {
             cache,
           })
           kc3CloneProcess.complete()
+          changed = true
         } else console.log('Updating existing repo...')
 
         updateProgress()
@@ -258,6 +265,7 @@ class KC3Updater {
         if (!IsKc3UpToDate || !langOk) {
           if (!IsKc3UpToDate) {
             await self.pullCommits(dir, latestCommit, cache)
+            changed = true
           }
 
           updateProgress()
@@ -302,18 +310,130 @@ class KC3Updater {
                 cache,
               })
               langCloneProcess.complete()
+              changed = true
             } else {
               await self.pullCommits(langDir, latestLangCommit, cache)
+              changed = true
             }
             updateProgress()
           } // pull lang
         } // pull kc3kai
       }
+      success = true
     } finally {
-      updateProcess.complete()
+      updateProcess.complete({ success, changed, channel })
     }
 
     console.log('Done.')
+  }
+
+  async updateTranslations(extensionsPath, channel) {
+    if (!['release', 'master', 'develop'].includes(channel))
+      throw new Error(`kc3updater.js: Cannot update translations for channel ${channel}`)
+
+    const dir = path.join(extensionsPath, 'kc3kai-' + channel)
+    const langPath = channel === 'release' ? 'data/lang' : 'src/data/lang'
+    const langDir = path.join(dir, langPath)
+    let cache = {}
+
+    console.log(`kc3updater.js: updating translations for ${channel} at ${dir}`)
+
+    if (!fs.existsSync(dir)) {
+      throw new Error('kc3updater.js: KC3 directory does not exist. Run a full update first.')
+    }
+
+    let updateProcess = self.newProcess('Translation Update')
+    let success = false
+    let changed = false
+    try {
+      let langOk = fs.existsSync(path.join(langDir, '.git'))
+
+      if (channel === 'release') {
+        const refs = await git.listServerRefs({
+          http,
+          url: 'https://github.com/kc3kai/kc3-translations',
+          prefix: 'refs/heads/master',
+          cache,
+        })
+        const latest = refs[0]
+        if (!latest?.oid) throw new Error('Unable to resolve kc3-translations master')
+        const marker = path.join(langDir, '.damecon-translation-oid')
+        const current = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : ''
+        let validCurrentData = false
+        try {
+          await validateTranslationsDataDirectory(path.join(langDir, 'data'))
+          validCurrentData = true
+        } catch (error) {}
+        if (current !== latest.oid || !validCurrentData) {
+          const stagingRoot = await createSiblingTemporaryDirectory(path.join(langDir, 'data'))
+          try {
+            const zipPath = path.join(stagingRoot, 'translations.zip')
+            const stream = await fetchWithProgress(
+              `https://codeload.github.com/KC3Kai/kc3-translations/zip/${latest.oid}`,
+              () => {},
+            )
+            await pipeline(stream, fs.createWriteStream(zipPath, { flags: 'wx' }))
+            new AdmZip(zipPath).extractAllTo(stagingRoot, true)
+            const dataDirectory = await findTranslationsDataDirectory(stagingRoot)
+            await replaceDirectoryAtomically(dataDirectory, path.join(langDir, 'data'))
+            await fsAsync.writeFile(marker, `${latest.oid}\n`)
+            changed = true
+          } finally {
+            await fsAsync.rm(stagingRoot, { recursive: true, force: true })
+          }
+        }
+      } else {
+        // For master/develop: read submodule reference from KC3 repo tree
+        let latestSubmoduleCommits = await git.log({
+          fs,
+          dir,
+          filepath: langPath,
+          depth: 1,
+          cache,
+        })
+        let latestSubmoduleCommit = latestSubmoduleCommits[0]
+
+        let tree = await git.readTree({
+          fs,
+          dir,
+          oid: latestSubmoduleCommit.commit.tree,
+          filepath: 'src/data',
+          cache,
+        })
+        let latestLangCommit = tree.tree.find((t) => t.path === 'lang')
+
+        let currentLangCommit
+        if (langOk) currentLangCommit = (await git.log({ fs, dir: langDir, depth: 1, cache }))[0]
+
+        console.log(`current lang: ${currentLangCommit?.oid ?? '[none]'}`)
+        console.log(`latest lang: ${latestLangCommit.oid}`)
+
+        if (currentLangCommit?.oid !== latestLangCommit.oid || !langOk) {
+          if (!langOk) {
+            const langCloneProcess = self.newProcess('Cloning translation repo')
+            await git.clone({
+              fs,
+              http,
+              dir: langDir,
+              url: 'https://github.com/kc3kai/kc3-translations',
+              ref: latestLangCommit.oid,
+              onProgress: langCloneProcess.progress.bind(langCloneProcess),
+              cache,
+            })
+            langCloneProcess.complete()
+          } else {
+            await self.pullCommits(langDir, latestLangCommit, cache)
+          }
+        } else {
+          console.log('kc3updater.js: Translations already up to date.')
+        }
+      }
+      success = true
+    } finally {
+      updateProcess.complete({ success, changed, channel })
+    }
+
+    console.log('Translation update done.')
   }
 }
 

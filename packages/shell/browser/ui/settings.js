@@ -124,6 +124,15 @@ class Settings {
   canSetKc3Channel = ko.computed(() => !this.kc3IsUpdating(), this)
   canUpdateKc3 = ko.observable(true)
 
+  translationsIsUpdating = ko.observable(false)
+  canUpdateTranslations = ko.computed(
+    () =>
+      !this.translationsIsUpdating() &&
+      !this.kc3IsUpdating() &&
+      !!this.config?.kc3kai?.update.channel(),
+    this,
+  )
+
   kccpModderIsUpdating = ko.observable(false)
   canUpdateKccpMods = ko.observable(false)
 
@@ -407,6 +416,10 @@ class Settings {
     await sendToMain('kc3-doupdate')
   }
 
+  async kc3UpdateTranslations() {
+    await sendToMain('kc3-doupdate-translations')
+  }
+
   addNewHideAddressBarSite() {
     const site = this.newHideAddressBarSite()
     if (!this.canAddNewHideAddressBarSite()) return
@@ -531,8 +544,12 @@ class Settings {
       case 'status-kccp-modder-is-updating':
         this.kccpModderIsUpdating(msg.data.isUpdating)
         break
+      case 'status-translations-is-updating':
+        this.translationsIsUpdating(msg.data.isUpdating)
+        break
       case 'error-do-kc3-update':
       case 'error-do-kccp-modder-update':
+      case 'error-do-translations-update':
         // TODO: report the error
         break
       case 'update-process-started':
