@@ -96,6 +96,10 @@ function completeWindow() {
           { api_id: 21, api_name: 'Test ship Kai' },
           { api_id: 22, api_name: 'Test ship Kai Ni' },
         ],
+        slotitem: [
+          { api_id: 7, api_name: 'Test plane master' },
+          { api_id: 8, api_name: 'Base plane master' },
+        ],
       },
       ship: () => ({ api_name: 'Test ship' }),
       slotitem: () => ({
@@ -123,10 +127,28 @@ test('projects live KC3 calculations and ownership without mutating managers', (
   assert.equal(first.data.equipment.instances[0].location.kind, 'ship')
   assert.equal(first.data.equipment.instances[1].location.areaId, 6)
   assert.equal(first.data.reference.shipNames['22'].name, 'Test ship Kai Ni')
+  assert.deepEqual(first.data.reference.equipmentNames['7'], {
+    masterId: 7,
+    name: 'Test plane master',
+  })
   assert.equal(JSON.stringify(window.PlayerManager), before)
   assert.deepEqual(first.data, second.data)
   const source = collectKc3Snapshot.toString()
   assert.doesNotThrow(() => Function('window', `return (${source})()`)(window))
+})
+
+test('projects equipment names from a KC3 master slotitem map without raw records', () => {
+  global.window = completeWindow()
+  window.KC3Master._raw.slotitem = {
+    x7: { api_id: 7, api_name: 'Mapped plane' },
+    8: { api_name: 'Mapped base plane' },
+  }
+  const snapshot = collectKc3Snapshot()
+  assert.deepEqual(snapshot.data.reference.equipmentNames, {
+    7: { masterId: 7, name: 'Mapped plane' },
+    8: { masterId: 8, name: 'Mapped base plane' },
+  })
+  assert.equal(Object.values(snapshot.data.reference.equipmentNames).some((item) => item.raw), false)
 })
 
 test('does not claim KC3 ready for incomplete live objects', () => {

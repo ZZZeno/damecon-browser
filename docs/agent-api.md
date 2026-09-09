@@ -74,6 +74,8 @@ const result = await window.dameconAgent.callTool(modelCall.name, modelCall.argu
 
 `getEquipment` 的 `category` 是 KC3 `api_type[2]`，`masterId` 是装备图鉴 ID。`getImprovements.day` 支持 `today`、`sun` 到 `sat`（按日本时间）；秘书舰和装备筛选参数均为 master ID。`getQuests` 的 `current` 来自最近一次读取的 KC3 当前任务对象；`knowledge` 来自随 KC3 扩展提供的静态任务图和改修资料，静态资料缺失时返回 `available: false`，不会猜测任务完成或解锁状态。
 
+改修条目和升级配方会在保留原有 ID、数组及 `raw` 值的基础上提供 `name`/`nameSource`；秘书舰条件提供 `secretaryNames` 和 `secretaryDetails`。每个改修阶段保留原 `consumedEquipment`，并增加可识别的 `consumedItems`（装备或消耗品的 ID、名称、数量）；无法确定格式的值只放入 `raw`，不会猜测类型。
+
 ## 返回值与状态
 
 除 `health`、`getSchema` 外，方法返回统一 envelope：

@@ -165,6 +165,22 @@ function namesFrom(raw) {
   )
 }
 
+function namesFromUseitems(raw) {
+  if (!Array.isArray(raw)) return namesFrom(raw)
+  return raw.reduce((out, item, index) => {
+    const name =
+      typeof item === 'string'
+        ? item
+        : item && typeof item === 'object'
+          ? item.name ?? item.api_name ?? item.en ?? item.jp
+          : null
+    if (typeof name === 'string' && name) out[String(index)] = name
+    if (item && typeof item === 'object' && item.id != null && typeof name === 'string' && name)
+      out[String(item.id)] = name
+    return out
+  }, {})
+}
+
 function namesFromRecords(records, language) {
   const names = {}
   for (const record of records || []) {
@@ -305,6 +321,74 @@ function normalizeRecipes(records, masterId) {
   return recipes
 }
 
+function lookupName(names, id) {
+  if (!names || id == null) return null
+  const value = names[String(id)] ?? names[id]
+  if (typeof value === 'string') return value || null
+  if (value && typeof value === 'object') {
+    const name = value.name ?? value.api_name ?? null
+    return typeof name === 'string' && name ? name : null
+  }
+  return null
+}
+
+function numericCount(value) {
+  if (value == null || value === '') return null
+  const count = Number(value)
+  return Number.isInteger(count) && count >= 0 ? count : null
+}
+
+function consumedItem(identifier, count, resolveEquipmentName, consumableNames, raw) {
+  if ((identifier == null || identifier === '') && numericCount(count) === 0) return null
+  const equipmentId =
+    typeof identifier === 'number' && Number.isInteger(identifier) && identifier > 0
+      ? identifier
+      : typeof identifier === 'string' && /^\d+$/.test(identifier)
+        ? Number(identifier)
+        : null
+  if (equipmentId != null) {
+    const resolved = resolveEquipmentName(equipmentId)
+    return {
+      kind: 'equipment',
+      masterId: equipmentId,
+      name: resolved.name,
+      count: numericCount(count),
+      nameSource: resolved.nameSource,
+    }
+  }
+  const consumableMatch = typeof identifier === 'string' && /^consumable_(\d+)$/.exec(identifier)
+  if (consumableMatch) {
+    const consumableId = Number(consumableMatch[1])
+    const name = lookupName(consumableNames, consumableId)
+    return {
+      kind: 'consumable',
+      consumableId,
+      name,
+      count: numericCount(count),
+      nameSource: name == null ? null : 'static',
+    }
+  }
+  return { kind: 'unknown', raw: raw === undefined ? identifier : raw }
+}
+
+function consumedItemsForStage(stage, resolveEquipmentName, consumableNames) {
+  if (!stage || typeof stage !== 'object') return []
+  const consumed = stage.consumedEquipment
+  if (consumed == null || consumed === 0 || consumed === false || consumed === '') return []
+  if (Array.isArray(consumed)) {
+    if (!consumed.length) return []
+    if (consumed.length === 2 && !Array.isArray(consumed[0]) && !Array.isArray(consumed[1]))
+      return [consumedItem(consumed[0], consumed[1], resolveEquipmentName, consumableNames, consumed)].filter(Boolean)
+    if (consumed.every((item) => Array.isArray(item)))
+      return consumed
+        .map((item) => consumedItem(item[0], item[1], resolveEquipmentName, consumableNames, item))
+        .filter(Boolean)
+    return [{ kind: 'unknown', raw: consumed }]
+  }
+  const raw = Array.isArray(stage.raw) ? stage.raw : null
+  return [consumedItem(consumed, raw ? raw[5] : null, resolveEquipmentName, consumableNames)]
+}
+
 function ownedCounts(snapshot) {
   const counts = new Map()
   const instances =
@@ -321,16 +405,25 @@ function ownedCounts(snapshot) {
 async function loadKnowledge(extensionPath, language = 'en') {
   const root = path.resolve(String(extensionPath || '.'))
   const warnings = []
-  const [akashiFile, questsMetaFile, nedbFile, shipsNedbFile, itemsFile, questsFile, shipsFile] =
-    await Promise.all([
-      findFile(root, 'akashi.json'),
-      findFile(root, 'quests_meta.json'),
-      findFile(root, 'WhoCallsTheFleet_items.nedb'),
-      findFile(root, 'WhoCallsTheFleet_ships.nedb'),
-      readTranslation(root, language, 'items.json'),
-      readTranslation(root, language, 'quests.json'),
-      readTranslation(root, language, 'ships.json'),
-    ])
+  const [
+    akashiFile,
+    questsMetaFile,
+    nedbFile,
+    shipsNedbFile,
+    itemsFile,
+    useitemsFile,
+    questsFile,
+    shipsFile,
+  ] = await Promise.all([
+    findFile(root, 'akashi.json'),
+    findFile(root, 'quests_meta.json'),
+    findFile(root, 'WhoCallsTheFleet_items.nedb'),
+    findFile(root, 'WhoCallsTheFleet_ships.nedb'),
+    readTranslation(root, language, 'items.json'),
+    readTranslation(root, language, 'useitems.json'),
+    readTranslation(root, language, 'quests.json'),
+    readTranslation(root, language, 'ships.json'),
+  ])
   if (!akashiFile) warnings.push({ code: 'missing_akashi', message: 'akashi.json was not found' })
   if (!questsMetaFile)
     warnings.push({ code: 'missing_quests_meta', message: 'quests_meta.json was not found' })
@@ -350,6 +443,7 @@ async function loadKnowledge(extensionPath, language = 'en') {
     namesFromRecords(upgradeRecords, language),
     namesFrom(itemsFile && itemsFile.value),
   )
+  const consumableNames = namesFromUseitems(useitemsFile && useitemsFile.value)
   const questNames = namesFrom(questsFile && questsFile.value)
   const questRaw =
     questsFile && questsFile.value && typeof questsFile.value === 'object' ? questsFile.value : {}
@@ -451,6 +545,7 @@ async function loadKnowledge(extensionPath, language = 'en') {
     ships: (shipsNedbFile && shipsNedbFile.path) || null,
     language: {
       items: (itemsFile && itemsFile.path) || null,
+      useitems: (useitemsFile && useitemsFile.path) || null,
       quests: (questsFile && questsFile.path) || null,
       ships: (shipsFile && shipsFile.path) || null,
     },
@@ -479,23 +574,34 @@ async function loadKnowledge(extensionPath, language = 'en') {
           filters.snapshot.data.reference &&
           filters.snapshot.data.reference.shipNames) ||
         {}
-      const hasSnapshot = !!(
-        filters.snapshot &&
-        filters.snapshot.ready !== false &&
-        (snapshotSource
-          ? snapshotSource.status === 'live'
-          : filters.snapshot.ready === true || filters.snapshot.ready == null)
-      )
-      const matches = schedule.filter(
-        (entry) =>
-          (wantedDay == null || Number(entry.weekday) === Number(wantedDay)) &&
-          (wantedId == null || Number(entry.equipmentMasterId) === Number(wantedId)) &&
-          (wantedSecretary == null ||
-            entry.secretaryIds.some((id) => Number(id) === Number(wantedSecretary))),
-      )
-      const decorate = (entry) => {
-        const recipes = normalizeRecipes(upgradeRecords, entry.equipmentMasterId)
-        const secretaryDetails = entry.secretaryIds.map((id) => {
+      const snapshotEquipmentNames =
+        (filters.snapshot &&
+          filters.snapshot.data &&
+          filters.snapshot.data.reference &&
+          filters.snapshot.data.reference.equipmentNames) ||
+        {}
+      const liveEquipmentNames = {}
+      const liveEquipmentInstances =
+        (filters.snapshot &&
+          filters.snapshot.data &&
+          filters.snapshot.data.equipment &&
+          filters.snapshot.data.equipment.instances) ||
+        []
+      liveEquipmentInstances.forEach((item) => {
+        if (item && item.masterId != null && item.name != null && liveEquipmentNames[String(item.masterId)] == null)
+          liveEquipmentNames[String(item.masterId)] = item.name
+      })
+      const resolveEquipmentName = (id) => {
+        const liveMaster = lookupName(snapshotEquipmentNames, id)
+        if (liveMaster != null) return { name: liveMaster, nameSource: 'live_master' }
+        const liveInstance = lookupName(liveEquipmentNames, id)
+        if (liveInstance != null) return { name: liveInstance, nameSource: 'live_instance' }
+        const staticName = lookupName(itemNames, id)
+        if (staticName != null) return { name: staticName, nameSource: 'static' }
+        return { name: null, nameSource: null }
+      }
+      const secretaryDetailsFor = (ids) =>
+        (Array.isArray(ids) ? ids : []).map((id) => {
           const record = secretaryRecords[String(id)] || {}
           const suffix =
             record.suffix ??
@@ -512,6 +618,55 @@ async function loadKnowledge(extensionPath, language = 'en') {
             nameSource: liveName ? 'live_master' : baseName ? 'static_base' : null,
           }
         })
+      const hasSnapshot = !!(
+        filters.snapshot &&
+        filters.snapshot.ready !== false &&
+        (snapshotSource
+          ? snapshotSource.status === 'live'
+          : filters.snapshot.ready === true || filters.snapshot.ready == null)
+      )
+      const matches = schedule.filter(
+        (entry) =>
+          (wantedDay == null || Number(entry.weekday) === Number(wantedDay)) &&
+          (wantedId == null || Number(entry.equipmentMasterId) === Number(wantedId)) &&
+          (wantedSecretary == null ||
+            entry.secretaryIds.some((id) => Number(id) === Number(wantedSecretary))),
+      )
+      const decorate = (entry) => {
+        const secretaryDetails = secretaryDetailsFor(entry.secretaryIds)
+        const recipes = normalizeRecipes(upgradeRecords, entry.equipmentMasterId).map((recipe) => {
+          const upgradeName = recipe.upgrade && resolveEquipmentName(recipe.upgrade.masterId)
+          const requirements = recipe.requirements.map((requirement) => {
+            const requirementSecretaries = secretaryDetailsFor(requirement.secretaryIds)
+            return Object.assign({}, requirement, {
+              secretaryNames: requirementSecretaries.map((item) => item.fullName),
+              secretaryDetails: requirementSecretaries,
+            })
+          })
+          const resources = recipe.resources && typeof recipe.resources === 'object'
+            ? Object.assign({}, recipe.resources, {
+                stages: Array.isArray(recipe.resources.stages)
+                  ? recipe.resources.stages.map((stage) =>
+                      Object.assign({}, stage, {
+                        consumedItems: consumedItemsForStage(
+                          stage,
+                          resolveEquipmentName,
+                          consumableNames,
+                        ),
+                      }),
+                    )
+                  : recipe.resources.stages,
+              })
+            : recipe.resources
+          return Object.assign({}, recipe, {
+            upgrade:
+              recipe.upgrade == null
+                ? recipe.upgrade
+                : Object.assign({}, recipe.upgrade, upgradeName),
+            requirements,
+            resources,
+          })
+        })
         const matchingRecipes = recipes.filter(
           (recipe) =>
             recipe.requirements.length === 0 ||
@@ -525,11 +680,10 @@ async function loadKnowledge(extensionPath, language = 'en') {
               return dayMatch && secretaryMatch
             }),
         )
+        const equipmentName = resolveEquipmentName(entry.equipmentMasterId)
         return Object.assign({}, entry, {
-          name:
-            itemNames[entry.equipmentMasterId] ??
-            itemNames[String(entry.equipmentMasterId)] ??
-            null,
+          name: equipmentName.name,
+          nameSource: equipmentName.nameSource,
           secretaryNames: secretaryDetails.map((item) => item.fullName),
           secretaryDetails,
           owned: hasSnapshot ? counts.get(entry.equipmentMasterId) || 0 : null,

@@ -579,6 +579,19 @@ function collectKc3Snapshot() {
         }
     })
   }
+  const rawSlotitems = master && master._raw && (master._raw.slotitem || master._raw.slotitems)
+  const equipmentNames = {}
+  const addEquipmentName = (fallbackId, item) => {
+    if (!item || typeof item !== 'object') return
+    const rawId = item.api_id ?? item.id ?? item.masterId ?? fallbackId
+    const masterId = Number(String(rawId).replace(/^x/, ''))
+    const name = item.api_name ?? item.name
+    if (Number.isInteger(masterId) && masterId > 0 && typeof name === 'string')
+      equipmentNames[String(masterId)] = { masterId, name }
+  }
+  if (Array.isArray(rawSlotitems)) rawSlotitems.forEach((item) => addEquipmentName(null, item))
+  else if (rawSlotitems && typeof rawSlotitems === 'object')
+    Object.entries(rawSlotitems).forEach(([id, item]) => addEquipmentName(id, item))
   const player = {
     hq: pm.hq
       ? { level: number(pm.hq.level), exp: number(pm.hq.exp), name: pm.hq.name || null }
@@ -611,7 +624,7 @@ function collectKc3Snapshot() {
     source,
     data: {
       player,
-      reference: { shipNames },
+      reference: { shipNames, equipmentNames },
       fleets: { combinedFleet: combined, fleets },
       landBases: bases,
       equipment,
