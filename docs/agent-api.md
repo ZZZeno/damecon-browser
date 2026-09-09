@@ -66,6 +66,12 @@ const result = await window.dameconAgent.callTool(modelCall.name, modelCall.argu
 
 `callTool` 的参数是 JSON object；装备和 ID 使用正整数，改修 `day` 使用 `today` 或 `sun` 到 `sat`，任务 `id` 可为正整数或非空正整数数组。工具调用不会执行游戏 action。页面上的 `getSnapshot` 等旧方法仍保留，并映射到相同工具注册表。
 
+## 可视化调用
+
+从 Damecon 新标签页点击 `Agent Tools · 工具调试`，即可打开内置的工具调试入口。页面列出每个工具的描述并按 `inputSchema` 生成表单；改修的 `day`、任务的 `mode` 使用枚举下拉，装备类别会读取当前类别名称和数量，任务 ID 支持单个或多个 ID。没有参数的工具会省略空参数；正整数等非法值会在提交前拦截。
+
+调用结果会显示完整 JSON，并提供复制和下载；状态栏同时显示 `source`、`revision` 和本次调用耗时。页面调用与 browser API、LAN MCP 共用同一个只读 Tool service。LAN MCP 配置收在折叠区域，不打开或保存配置也可以使用页面内的工具。
+
 `getEquipment` 的 `category` 是 KC3 `api_type[2]`，`masterId` 是装备图鉴 ID。`getImprovements.day` 支持 `today`、`sun` 到 `sat`（按日本时间）；秘书舰和装备筛选参数均为 master ID。`getQuests` 的 `current` 来自最近一次读取的 KC3 当前任务对象；`knowledge` 来自随 KC3 扩展提供的静态任务图和改修资料，静态资料缺失时返回 `available: false`，不会猜测任务完成或解锁状态。
 
 ## 返回值与状态
@@ -111,6 +117,7 @@ console.log((await window.dameconAgent.getEquipment({ category: 6 })).data.insta
 ```sh
 node --test packages/shell/browser/agent-api/*.test.js
 node_modules/electron/dist/Electron.app/Contents/MacOS/Electron scripts/agent-api-smoke.cjs
+node_modules/electron/dist/Electron.app/Contents/MacOS/Electron scripts/agent-ui-smoke.cjs
 ```
 
 smoke 使用独立临时配置和本地 KC3 测试数据，不连接真实游戏。
