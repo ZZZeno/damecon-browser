@@ -1,23 +1,8 @@
 'use strict'
 
-const { AgentApiBridge, SCHEMA_VERSION } = require('./bridge.js')
+const { AgentApiBridge } = require('./bridge.js')
+const { createAgentToolService, schema } = require('./service.js')
 const { listTools, getTool, validateArguments } = require('./tools.js')
-
-const schema = {
-  schemaVersion: SCHEMA_VERSION,
-  readonly: true,
-  transport: 'browser-native',
-  tools: listTools(),
-  envelope: {
-    schemaVersion: SCHEMA_VERSION,
-    revision: 'read generation',
-    capturedAt: 'ISO-8601',
-    source: 'status and frame identity',
-    data: 'resource payload',
-    warnings: 'array',
-  },
-  sourceStatuses: ['live', 'unavailable', 'ambiguous'],
-}
 
 function senderUrl(event) {
   try {
@@ -37,6 +22,7 @@ function allowedAgentPage(event, webuiExtensionId) {
 
 function createAgentApiIntegration(options = {}) {
   const bridge = options.bridge || new AgentApiBridge(options)
+  const service = options.service || createAgentToolService({ bridge })
   const ipc = options.ipcMain
   const webuiExtensionId = options.webuiExtensionId
   const channel = options.channel || 'agent-api-read'
@@ -53,7 +39,7 @@ function createAgentApiIntegration(options = {}) {
     const args = request.args || {}
     if (request.operation === 'list-tools') {
       if (Object.keys(args).length) throw new Error('list-tools does not accept arguments')
-      return listTools()
+      return service.listTools()
     }
     const legacy = {
       snapshot: 'damecon_get_snapshot',
@@ -70,41 +56,12 @@ function createAgentApiIntegration(options = {}) {
     if (!tool) throw new Error(`unknown agent API operation: ${request.operation}`)
     validateArguments(toolName, args)
     if (request.operation === 'call-tool' || legacy[request.operation])
-      return invokeTool(tool.method, bridge, args)
-  }
-  function invokeTool(method, apiBridge, args) {
-    switch (method) {
-      case 'getSnapshot':
-        return apiBridge.getSnapshot()
-      case 'getFleets':
-        return apiBridge.getFleets()
-      case 'getEquipment':
-        return apiBridge.getEquipment(args)
-      case 'getLandBases':
-        return apiBridge.getLandBases()
-      case 'getImprovements':
-        return apiBridge.getImprovements(args)
-      case 'getQuests':
-        return apiBridge.getQuests(args)
-      case 'getSchema':
-        return schema
-      case 'health': {
-        return apiBridge.getSnapshot().then((snapshot) => ({
-          schemaVersion: SCHEMA_VERSION,
-          revision: snapshot.revision,
-          capturedAt: snapshot.capturedAt,
-          status: snapshot.source.status === 'live' ? 'ok' : snapshot.source.status,
-          source: snapshot.source,
-          warnings: snapshot.warnings,
-        }))
-      }
-      default:
-        throw new Error(`unknown agent tool method: ${method}`)
-    }
+      return service.callTool(tool.name, args)
   }
   if (ipc && typeof ipc.handle === 'function') ipc.handle(channel, handler)
   return {
     bridge,
+    service,
     schema,
     dispatch: handler,
     stop() {

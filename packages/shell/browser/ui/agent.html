@@ -31,6 +31,46 @@
         color: #a8c7fa;
         margin: 8px 0 14px;
       }
+      #mcp-setup {
+        max-width: 760px;
+        margin-top: 20px;
+        padding: 14px;
+        border: 1px solid #3c4043;
+        border-radius: 6px;
+      }
+      #mcp-setup h2 {
+        margin: 0 0 8px;
+        font-size: 17px;
+      }
+      #mcp-setup label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 12px 8px 0;
+      }
+      #mcp-setup input,
+      #mcp-setup select {
+        box-sizing: border-box;
+        padding: 5px 7px;
+        color: inherit;
+        background: #303134;
+        border: 1px solid #5f6368;
+        border-radius: 3px;
+      }
+      #mcp-token {
+        width: 290px;
+      }
+      #mcp-status {
+        margin: 4px 0 8px;
+        color: #bdc1c6;
+      }
+      #mcp-urls {
+        margin: 4px 0 8px;
+        padding-left: 18px;
+      }
+      .mcp-url {
+        width: min(100%, 520px);
+      }
     </style>
   </head>
   <body>
@@ -49,6 +89,33 @@
     </div>
     <div id="status">Ready</div>
     <pre id="output">点击按钮读取当前数据。</pre>
+    <section id="mcp-setup" aria-labelledby="mcp-heading">
+      <h2 id="mcp-heading">LAN MCP（可选）</h2>
+      <p>通过标准 Streamable HTTP 将同一组只读工具提供给局域网 MCP 客户端。</p>
+      <label><input id="mcp-enabled" type="checkbox" /> 启用</label>
+      <label
+        >Host
+        <select id="mcp-host">
+          <option value="127.0.0.1">127.0.0.1（本机）</option>
+          <option value="0.0.0.0">0.0.0.0（局域网）</option>
+        </select>
+      </label>
+      <label
+        >Port <input id="mcp-port" type="number" min="1" max="65535" step="1" value="39273"
+      /></label>
+      <div>
+        <label
+          >Bearer token <input id="mcp-token" type="password" readonly autocomplete="off"
+        /></label>
+        <button id="mcp-reveal" type="button">显示</button>
+        <button id="mcp-copy" type="button">复制</button>
+        <button id="mcp-rotate" type="button">轮换</button>
+      </div>
+      <div id="mcp-status">状态：未读取</div>
+      <ul id="mcp-urls" hidden></ul>
+      <button id="mcp-refresh" type="button">刷新状态</button>
+      <button id="mcp-save" type="button">保存并应用</button>
+    </section>
     <script src="./agent.js"></script>
   </body>
 </html>

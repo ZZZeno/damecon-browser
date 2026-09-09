@@ -74,6 +74,7 @@ import {
   updateKccpGitMod,
 } from './kccp-integration.js'
 const { createAgentApiIntegration } = require('./agent-api/integration.js')
+const { McpController, registerMcpControl } = require('./agent-api/mcp-controller.js')
 
 const logSource = 'damecon-browser'
 
@@ -800,6 +801,22 @@ class Browser extends EventEmitter {
       getExtensionPath: () => this.currentKc3ExtensionPath || this.getKc3Path(),
       getExtensionVersion: () => kc3ExtensionId ? this.session.getExtension(kc3ExtensionId)?.version || null : null,
     })
+    this.mcpController = new McpController({ userDataPath: PATHS.USERDATA, service: this.agentApi.service })
+    this.mcpControl = registerMcpControl({ ipcMain, webuiExtensionId, controller: this.mcpController })
+    app.on('will-quit', (event) => {
+      if (this.mcpStopping) return
+      event.preventDefault()
+      this.mcpStopping = true
+      const closing = this.mcpController ? this.mcpController.stop() : Promise.resolve()
+      void closing.catch((error) => {
+        kccp.logger.error(logSource, 'Unable to close MCP server:', error?.message || error)
+      }).finally(() => app.quit())
+    })
+    try {
+      await this.mcpController.startSaved()
+    } catch (error) {
+      kccp.logger.error(logSource, 'Unable to start configured MCP server:', error?.message || error)
+    }
 
     const initialWindow = this.createTabbedWindow({
       initialUrls: [settingsUrl],

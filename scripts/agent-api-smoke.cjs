@@ -10,6 +10,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
+const http = require('node:http')
 const { app, BrowserWindow, ipcMain, session } = require('electron')
 
 const TIMEOUT_MS = 15_000
@@ -23,6 +24,8 @@ let kc3Extension
 let webuiExtension
 let bridge
 let integration
+let mcpServer
+let mcpClient
 let networkRequests = []
 
 const PRODUCTION_PRELOAD_ENTRY = `import { injectAgentApi } from ${JSON.stringify(path.resolve(__dirname, '../packages/shell/preload-ipc.js'))}; injectAgentApi();`
@@ -235,6 +238,103 @@ function extensionFrame() {
   return frame
 }
 
+function rawMcpRequest(url, options = {}) {
+  const body = JSON.stringify(options.body === undefined ? {} : options.body)
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      url,
+      {
+        method: options.method || 'POST',
+        headers: {
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+          ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+        },
+      },
+      (response) => {
+        const chunks = []
+        response.on('data', (chunk) => chunks.push(chunk))
+        response.on('end', () =>
+          resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }),
+        )
+      },
+    )
+    request.on('error', reject)
+    request.end(body)
+  })
+}
+
+async function runMcpSmoke() {
+  const { createAgentToolService } = require(
+    path.resolve(__dirname, '../packages/shell/browser/agent-api/service.js'),
+  )
+  const { startMcpHttpServer } = require(
+    path.resolve(__dirname, '../packages/shell/browser/agent-api/mcp-http-server.js'),
+  )
+  const { Client } = require('@modelcontextprotocol/sdk/client/index.js')
+  const {
+    StreamableHTTPClientTransport,
+  } = require('@modelcontextprotocol/sdk/client/streamableHttp.js')
+  const service = createAgentToolService({ bridge })
+  const token = 'agent-api-smoke-token'
+  mcpServer = await startMcpHttpServer({ service, host: '127.0.0.1', port: 0, token })
+  const address = mcpServer.address()
+  assert.ok(address && typeof address.port === 'number')
+  const url = `http://127.0.0.1:${address.port}/mcp`
+  assert.equal((await rawMcpRequest(url, { token: 'wrong-token', body: {} })).status, 401)
+
+  mcpClient = new Client({ name: 'damecon-agent-api-smoke', version: '1.0.0' })
+  await mcpClient.connect(
+    new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    }),
+  )
+  const listed = await mcpClient.listTools()
+  assert.equal(listed.tools.length, 8, JSON.stringify(listed.tools))
+  assert.deepEqual(
+    listed.tools.map((tool) => tool.name),
+    [
+      'damecon_get_snapshot',
+      'damecon_get_fleets',
+      'damecon_get_land_bases',
+      'damecon_get_equipment',
+      'damecon_get_improvements',
+      'damecon_get_quests',
+      'damecon_get_schema',
+      'damecon_health',
+    ],
+  )
+  const health = await mcpClient.callTool({ name: 'damecon_health', arguments: {} })
+  assert.equal(health.structuredContent.status, 'ok', JSON.stringify(health))
+  const fleets = await mcpClient.callTool({ name: 'damecon_get_fleets', arguments: {} })
+  const fleet = fleets.structuredContent.data.fleets[0]
+  assert.ok(Number.isFinite(fleet.metrics.fighterPower), JSON.stringify(fleet))
+  assert.ok(Number.isFinite(fleet.metrics.eLos), JSON.stringify(fleet))
+  assert.ok(Number.isFinite(fleet.metrics.transport.obtainTP.rankS), JSON.stringify(fleet))
+  const landBases = await mcpClient.callTool({ name: 'damecon_get_land_bases', arguments: {} })
+  const landBase = landBases.structuredContent.data[0]
+  assert.ok(landBase.metrics.sortieFighterPower > 0, JSON.stringify(landBase))
+  assert.ok(Number.isFinite(landBase.metrics.defenseInterceptionPower), JSON.stringify(landBase))
+
+  const oldRevision = health.structuredContent.revision
+  await extensionFrame().executeJavaScript(
+    'window.PlayerManager.hq.level = 91; window.PlayerManager.hq.lastMaterial[0] = 298',
+  )
+  const refreshed = await mcpClient.callTool({ name: 'damecon_get_snapshot', arguments: {} })
+  assert.ok(refreshed.structuredContent.revision > oldRevision, JSON.stringify(refreshed))
+  assert.equal(refreshed.structuredContent.data.player.hq.level, 91)
+  await mcpClient.close()
+  mcpClient = null
+  await mcpServer.close()
+  mcpServer = null
+  return {
+    endpoint: url,
+    tools: listed.tools.length,
+    fleetRevision: refreshed.structuredContent.revision,
+    landBaseFighterPower: landBase.metrics.sortieFighterPower,
+  }
+}
+
 async function invokeAgent(method, argument) {
   return agentWindow.webContents.executeJavaScript(
     `window.dameconAgent.${method}(${argument === undefined ? '' : JSON.stringify(argument)})`,
@@ -440,7 +540,7 @@ async function runSmoke() {
     'quest graph must retain unknown unlock targets',
   )
   const schema = await invokeAgent('getSchema')
-  assert.equal(schema.transport, 'browser-native')
+  assert.equal(schema.transport, 'browser-native-and-mcp')
   const health = await invokeAgent('health')
   assert.equal(health.status, 'ok')
 
@@ -457,6 +557,7 @@ async function runSmoke() {
 
   assert.deepEqual(networkRequests, [], 'smoke fixtures must not issue HTTP(S) requests')
   assert.equal(bridge.inflight, null, 'on-demand bridge reads must settle before returning')
+  const mcp = await runMcpSmoke()
   return {
     windows: 3,
     calls: 9,
@@ -471,10 +572,15 @@ async function runSmoke() {
       obtainTP: fleetMetrics.transport.obtainTP,
     },
     landBaseMetrics,
+    mcp,
   }
 }
 
 async function cleanup() {
+  if (mcpClient) await mcpClient.close().catch(() => {})
+  mcpClient = null
+  if (mcpServer) await mcpServer.close().catch(() => {})
+  mcpServer = null
   if (integration) integration.stop()
   for (const window of [agentWindow, attackerWindow, gameWindow]) {
     if (window && !window.isDestroyed()) window.destroy()
@@ -500,6 +606,7 @@ async function main() {
   } finally {
     clearTimeout(watchdog)
     await cleanup()
+    process.exitCode = exitCode
     app.exit(exitCode)
   }
 }

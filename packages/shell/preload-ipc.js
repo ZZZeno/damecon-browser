@@ -53,6 +53,10 @@ export const injectAgentApi = () => {
     getQuests: (filters) => callTool('damecon_get_quests', filters),
     getSchema: () => callTool('damecon_get_schema'),
     health: () => callTool('damecon_health'),
+    getMcpStatus: () => ipcRenderer.invoke('agent-mcp-control', { operation: 'get-status' }),
+    configureMcp: (config) =>
+      ipcRenderer.invoke('agent-mcp-control', { operation: 'configure', config }),
+    rotateMcpToken: () => ipcRenderer.invoke('agent-mcp-control', { operation: 'rotate-token' }),
   }
   try {
     contextBridge.exposeInMainWorld('dameconAgent', api)
