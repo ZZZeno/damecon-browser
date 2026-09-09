@@ -148,7 +148,66 @@ test('projects equipment names from a KC3 master slotitem map without raw record
     7: { masterId: 7, name: 'Mapped plane' },
     8: { masterId: 8, name: 'Mapped base plane' },
   })
-  assert.equal(Object.values(snapshot.data.reference.equipmentNames).some((item) => item.raw), false)
+  assert.equal(
+    Object.values(snapshot.data.reference.equipmentNames).some((item) => item.raw),
+    false,
+  )
+})
+
+test('resolves names for unassigned ships and duplicate land-base ids by area', () => {
+  const w = completeWindow()
+  w.PlayerManager.bases[0].name = 'Area 6 base'
+  const secondBase = Object.assign({}, w.PlayerManager.bases[0], {
+    map: 7,
+    name: 'Area 7 base',
+    planes: [
+      {
+        api_slotid: 104,
+        api_squadron_id: 2,
+        api_count: 18,
+        api_max_count: 18,
+        api_state: 1,
+        api_cond: 49,
+      },
+    ],
+  })
+  const unassignedGear = { itemId: 103, masterId: 7, name: () => 'Unassigned plane' }
+  const unassignedShip = {
+    rosterId: 12,
+    masterId: 21,
+    items: [103],
+    slots: [5],
+    name: () => 'Unassigned ship',
+  }
+  const secondBaseGear = { itemId: 104, masterId: 8, name: () => 'Area 7 plane' }
+  w.PlayerManager.bases.push(secondBase)
+  w.KC3ShipManager.list.x12 = unassignedShip
+  w.KC3GearManager.list.x103 = unassignedGear
+  w.KC3GearManager.list.x104 = secondBaseGear
+  global.window = w
+
+  const snapshot = collectKc3Snapshot()
+  const unassigned = snapshot.data.equipment.instances.find((item) => item.itemId === 103)
+  assert.equal(unassigned.location.shipId, 12)
+  assert.equal(unassigned.location.shipName, 'Unassigned ship')
+  const area6 = snapshot.data.equipment.instances.find((item) => item.itemId === 102)
+  const area7 = snapshot.data.equipment.instances.find((item) => item.itemId === 104)
+  assert.equal(area6.location.baseName, 'Area 6 base')
+  assert.equal(area7.location.baseName, 'Area 7 base')
+  assert.equal(snapshot.data.landBases[0].planes[0].name, 'Base plane')
+  assert.equal(snapshot.data.landBases[1].planes[0].name, 'Area 7 plane')
+})
+
+test('enriches ownership conflict locations after collecting all assignments', () => {
+  const w = completeWindow()
+  w.PlayerManager.bases[0].name = 'Conflict base'
+  w.PlayerManager.bases[0].planes[0].api_slotid = 101
+  global.window = w
+  const snapshot = collectKc3Snapshot()
+  const conflict = snapshot.data.equipment.ownershipConflicts.find((item) => item.itemId === 101)
+  assert.ok(conflict)
+  assert.equal(conflict.locations[0].shipName, 'Test ship')
+  assert.equal(conflict.locations[1].baseName, 'Conflict base')
 })
 
 test('does not claim KC3 ready for incomplete live objects', () => {

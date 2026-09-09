@@ -54,9 +54,13 @@ function createAgentApiIntegration(options = {}) {
     const toolName = request.operation === 'call-tool' ? request.name : legacy[request.operation]
     const tool = getTool(toolName)
     if (!tool) throw new Error(`unknown agent API operation: ${request.operation}`)
-    validateArguments(toolName, args)
+    const formatCapable = ['damecon_get_snapshot', 'damecon_get_fleets', 'damecon_get_land_bases', 'damecon_get_equipment', 'damecon_get_improvements', 'damecon_get_quests'].includes(tool.name)
+    const dispatchArgs = request.operation === 'call-tool' || !formatCapable || Object.prototype.hasOwnProperty.call(args, 'responseFormat')
+      ? args
+      : Object.assign({}, args, { responseFormat: 'detailed' })
+    validateArguments(toolName, dispatchArgs)
     if (request.operation === 'call-tool' || legacy[request.operation])
-      return service.callTool(tool.name, args)
+      return service.callTool(tool.name, dispatchArgs)
   }
   if (ipc && typeof ipc.handle === 'function') ipc.handle(channel, handler)
   return {

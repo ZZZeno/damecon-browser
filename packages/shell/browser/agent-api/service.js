@@ -2,11 +2,23 @@
 
 const { SCHEMA_VERSION } = require('./bridge.js')
 const { listTools, getTool, validateArguments } = require('./tools.js')
+const {
+  presentSnapshot,
+  presentFleets,
+  presentLandBases,
+  presentEquipment,
+  presentImprovements,
+  presentQuests,
+} = require('./presentation.js')
 
 const schema = {
   schemaVersion: SCHEMA_VERSION,
   readonly: true,
   transport: 'browser-native-and-mcp',
+  responseFormats: {
+    default: 'concise',
+    detailed: 'complete backward-compatible payload',
+  },
   tools: listTools(),
   envelope: {
     schemaVersion: SCHEMA_VERSION,
@@ -26,19 +38,22 @@ function createAgentToolService(options = {}) {
     const tool = getTool(name)
     if (!tool) throw new Error(`unknown agent tool: ${name}`)
     validateArguments(name, args)
+    const detailed = args.responseFormat === 'detailed'
+    const filters = Object.assign({}, args)
+    delete filters.responseFormat
     switch (tool.method) {
       case 'getSnapshot':
-        return bridge.getSnapshot()
+        return presentSnapshot(await bridge.getSnapshot(), detailed)
       case 'getFleets':
-        return bridge.getFleets()
+        return presentFleets(await bridge.getFleets(), detailed)
       case 'getEquipment':
-        return bridge.getEquipment(args)
+        return presentEquipment(await bridge.getEquipment(filters), filters, detailed)
       case 'getLandBases':
-        return bridge.getLandBases()
+        return presentLandBases(await bridge.getLandBases(), detailed)
       case 'getImprovements':
-        return bridge.getImprovements(args)
+        return presentImprovements(await bridge.getImprovements(filters), filters, detailed)
       case 'getQuests':
-        return bridge.getQuests(args)
+        return presentQuests(await bridge.getQuests(filters), filters, detailed)
       case 'getSchema':
         return schema
       case 'health': {

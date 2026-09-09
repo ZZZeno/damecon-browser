@@ -28,6 +28,8 @@ let mcpServer
 let mcpClient
 let networkRequests = []
 
+app.on('window-all-closed', () => {})
+
 const PRODUCTION_PRELOAD_ENTRY = `import { injectAgentApi } from ${JSON.stringify(path.resolve(__dirname, '../packages/shell/preload-ipc.js'))}; injectAgentApi();`
 
 const AGENT_HTML = `<!doctype html>
@@ -308,11 +310,13 @@ async function runMcpSmoke() {
   assert.equal(health.structuredContent.status, 'ok', JSON.stringify(health))
   const fleets = await mcpClient.callTool({ name: 'damecon_get_fleets', arguments: {} })
   const fleet = fleets.structuredContent.data.fleets[0]
+  assert.ok(fleet.ships[0].slots[0].name, JSON.stringify(fleet.ships[0].slots[0]))
   assert.ok(Number.isFinite(fleet.metrics.fighterPower), JSON.stringify(fleet))
   assert.ok(Number.isFinite(fleet.metrics.eLos), JSON.stringify(fleet))
   assert.ok(Number.isFinite(fleet.metrics.transport.obtainTP.rankS), JSON.stringify(fleet))
   const landBases = await mcpClient.callTool({ name: 'damecon_get_land_bases', arguments: {} })
   const landBase = landBases.structuredContent.data[0]
+  assert.ok(landBase.planes[0].name, JSON.stringify(landBase.planes[0]))
   assert.ok(landBase.metrics.sortieFighterPower > 0, JSON.stringify(landBase))
   assert.ok(Number.isFinite(landBase.metrics.defenseInterceptionPower), JSON.stringify(landBase))
 
@@ -323,6 +327,10 @@ async function runMcpSmoke() {
   const refreshed = await mcpClient.callTool({ name: 'damecon_get_snapshot', arguments: {} })
   assert.ok(refreshed.structuredContent.revision > oldRevision, JSON.stringify(refreshed))
   assert.equal(refreshed.structuredContent.data.player.hq.level, 91)
+  assert.equal(refreshed.structuredContent.responseFormat, 'concise')
+  assert.ok(refreshed.structuredContent.data.player)
+  assert.ok(refreshed.structuredContent.data.fleets.fleets[0].metrics)
+  assert.equal(refreshed.structuredContent.data.equipment.instances, undefined)
   await mcpClient.close()
   mcpClient = null
   await mcpServer.close()
@@ -461,7 +469,8 @@ async function runSmoke() {
     Object.values(metricDiagnostics).every((item) => item.ok),
     `KC3 metric diagnostics failed: ${JSON.stringify(metricDiagnostics)}`,
   )
-  assert.equal(first.schemaVersion, '1.0')
+  assert.equal(first.schemaVersion, '1.1')
+  assert.equal(first.responseFormat, 'detailed')
   assert.equal(first.source.status, 'live', JSON.stringify(first))
   assert.ok(
     !first.warnings.some((item) => item.code === 'read_failed'),
@@ -494,6 +503,8 @@ async function runSmoke() {
   assert.ok(first.data.player.secretary.name, JSON.stringify(first.data.player.secretary))
   assert.ok(first.data.equipment.instances.some((item) => item.masterId === 1 && item.name))
   assert.ok(first.data.equipment.instances.some((item) => item.masterId === 204 && item.name))
+  assert.ok(first.data.fleets.fleets[0].ships[0].slots[0].name)
+  assert.ok(first.data.landBases[0].planes[0].name)
 
   const frame = extensionFrame()
   await frame.executeJavaScript(
@@ -585,7 +596,7 @@ async function cleanup() {
   for (const window of [agentWindow, attackerWindow, gameWindow]) {
     if (window && !window.isDestroyed()) window.destroy()
   }
-  if (fixtureRoot) await fs.rm(fixtureRoot, { recursive: true, force: true })
+  if (fixtureRoot) await fs.rm(fixtureRoot, { recursive: true, force: true }).catch(() => {})
 }
 
 async function main() {

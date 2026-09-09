@@ -90,7 +90,7 @@ function resultText(value) {
 
 function createMcpServer(service) {
   const server = new Server(
-    { name: 'damecon-agent-api', version: '1.0.0' },
+    { name: 'damecon-agent-api', version: '1.1.0' },
     { capabilities: { tools: {} } },
   )
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: service.listTools() }))

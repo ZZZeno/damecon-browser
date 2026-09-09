@@ -3,7 +3,7 @@
 const { collectKc3Snapshot } = require('./kc3-projection.js')
 const { loadKnowledge } = require('./knowledge.js')
 
-const SCHEMA_VERSION = '1.0'
+const SCHEMA_VERSION = '1.1'
 const DEFAULT_TIMEOUT_MS = 3000
 const EMPTY_DATA = {
   player: null,

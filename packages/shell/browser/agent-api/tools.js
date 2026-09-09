@@ -3,47 +3,81 @@
 const annotations = { readOnlyHint: true, destructiveHint: false }
 const noArguments = { type: 'object', properties: {}, required: [], additionalProperties: false }
 const positiveInteger = { type: 'integer', minimum: 1 }
+const responseFormat = {
+  type: 'string',
+  enum: ['concise', 'detailed'],
+  default: 'concise',
+  description: 'concise 为默认精简结果；detailed 返回完整兼容数据',
+}
+const paginationFields = {
+  limit: { type: 'integer', minimum: 1, maximum: 100, description: '每页数量，最大 100' },
+  cursor: { type: 'string', maxLength: 1000, pattern: '^[A-Za-z0-9_-]+$', description: '同一筛选条件上一次结果的 nextCursor' },
+  query: { type: 'string', maxLength: 200, description: '按名称关键词筛选，区分大小写不敏感' },
+}
+const envelopeOutputSchema = {
+  type: 'object',
+  properties: {
+    schemaVersion: { type: 'string' },
+    revision: { type: 'integer' },
+    capturedAt: { type: 'string' },
+    source: { type: 'object' },
+    data: { anyOf: [{ type: 'object' }, { type: 'array' }, { type: 'null' }] },
+    warnings: { type: 'array' },
+    hints: { type: 'object' },
+    omittedFields: { type: 'array', items: { type: 'string' } },
+  },
+  additionalProperties: true,
+}
 
 const tools = [
   {
     name: 'damecon_get_snapshot',
     description:
-      '读取当前 KC3 已观察到的完整只读快照；需要同时查看提督、舰队、陆航、装备和任务时使用。',
-    inputSchema: noArguments,
+      '读取当前 KC3 已观察到的快照；默认 concise 返回提督、舰队、陆航、分类汇总和任务摘要，需要完整 raw/reference 时传 responseFormat=detailed。',
+    inputSchema: { type: 'object', properties: { responseFormat }, required: [], additionalProperties: false },
+    outputSchema: envelopeOutputSchema,
     method: 'getSnapshot',
   },
   {
     name: 'damecon_get_fleets',
-    description: '读取当前舰队、联合舰队、远征、舰船槽位以及制空、索敌和运输指标。',
-    inputSchema: noArguments,
+    description: '读取当前舰队、联合舰队、远征、槽位名称及制空、索敌和运输指标；默认 concise，完整原始字段用 responseFormat=detailed。',
+    inputSchema: { type: 'object', properties: { responseFormat }, required: [], additionalProperties: false },
+    outputSchema: envelopeOutputSchema,
     method: 'getFleets',
   },
   {
     name: 'damecon_get_land_bases',
-    description: '读取当前基地航空队、中队、航程及出击和防空制空指标。',
-    inputSchema: noArguments,
+    description: '读取当前基地航空队、中队名称、航程及出击和防空制空指标；默认 concise，完整原始字段用 responseFormat=detailed。',
+    inputSchema: { type: 'object', properties: { responseFormat }, required: [], additionalProperties: false },
+    outputSchema: envelopeOutputSchema,
     method: 'getLandBases',
   },
   {
     name: 'damecon_get_equipment',
-    description: '按 KC3 装备类别或装备图鉴 ID 读取当前持有装备实例、改修和所在位置。',
+    description: '按 KC3 装备类别、名称关键词或装备图鉴 ID 分页读取当前持有装备；名称、ID、改修、属性和位置在 concise 中保留，默认每页 50 条，完整 raw 用 responseFormat=detailed。',
     inputSchema: {
       type: 'object',
       properties: {
+        responseFormat,
         category: Object.assign({}, positiveInteger, { description: 'KC3 api_type[2] 装备类别' }),
         masterId: Object.assign({}, positiveInteger, { description: '装备图鉴 master ID' }),
+        query: paginationFields.query,
+        limit: paginationFields.limit,
+        cursor: paginationFields.cursor,
       },
       required: [],
       additionalProperties: false,
     },
+    outputSchema: envelopeOutputSchema,
     method: 'getEquipment',
   },
   {
     name: 'damecon_get_improvements',
-    description: '读取静态改修计划、秘书舰条件和材料；可按今天或星期、装备和秘书舰筛选。',
+    description: '按今天/星期、装备、秘书舰或名称关键词分页读取静态改修计划、配方、名称和材料；默认 concise 每页 20 条，完整 schedule/raw 用 responseFormat=detailed。',
     inputSchema: {
       type: 'object',
       properties: {
+        responseFormat,
         day: {
           type: 'string',
           enum: ['today', 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
@@ -51,18 +85,23 @@ const tools = [
         },
         equipmentId: Object.assign({}, positiveInteger, { description: '装备图鉴 master ID' }),
         secretaryId: Object.assign({}, positiveInteger, { description: '秘书舰图鉴 master ID' }),
+        query: paginationFields.query,
+        limit: paginationFields.limit,
+        cursor: paginationFields.cursor,
       },
       required: [],
       additionalProperties: false,
     },
+    outputSchema: envelopeOutputSchema,
     method: 'getImprovements',
   },
   {
     name: 'damecon_get_quests',
-    description: '读取当前已观察任务，或用 mode=knowledge 读取静态任务图和可能的解锁关系。',
+    description: '分页读取当前已观察任务，或用 mode=knowledge 读取静态任务图、名称和可能解锁关系；默认 concise 每页 50 条，完整 graph/raw 用 responseFormat=detailed。',
     inputSchema: {
       type: 'object',
       properties: {
+        responseFormat,
         mode: {
           type: 'string',
           enum: ['current', 'knowledge'],
@@ -75,10 +114,14 @@ const tools = [
           ],
           description: '任务 ID 或非空任务 ID 数组',
         },
+        query: paginationFields.query,
+        limit: paginationFields.limit,
+        cursor: paginationFields.cursor,
       },
       required: [],
       additionalProperties: false,
     },
+    outputSchema: envelopeOutputSchema,
     method: 'getQuests',
   },
   {
@@ -102,6 +145,7 @@ function publicTool(tool) {
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
+    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
     annotations: tool.annotations,
   }
 }
@@ -128,6 +172,20 @@ function validateArguments(toolName, args) {
       throw new Error('category must be a positive integer')
     if (has('masterId') && !isPositiveInteger(args.masterId))
       throw new Error('masterId must be a positive integer')
+  }
+  if (toolName === 'damecon_get_snapshot' || toolName === 'damecon_get_fleets' || toolName === 'damecon_get_land_bases') {
+    if (has('responseFormat') && !['concise', 'detailed'].includes(args.responseFormat))
+      throw new Error('responseFormat is invalid')
+  }
+  if (['damecon_get_equipment', 'damecon_get_improvements', 'damecon_get_quests'].includes(toolName)) {
+    if (has('responseFormat') && !['concise', 'detailed'].includes(args.responseFormat))
+      throw new Error('responseFormat is invalid')
+    if (has('limit') && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100))
+      throw new Error('limit must be an integer from 1 to 100')
+    if (has('cursor') && (typeof args.cursor !== 'string' || !args.cursor || args.cursor.length > 1000 || !/^[A-Za-z0-9_-]+$/.test(args.cursor)))
+      throw new Error('cursor must be a non-empty base64url string of at most 1000 characters')
+    if (has('query') && (typeof args.query !== 'string' || !args.query || args.query.length > 200))
+      throw new Error('query must be a non-empty string of at most 200 characters')
   }
   if (toolName === 'damecon_get_improvements') {
     if (has('day') && !tool.inputSchema.properties.day.enum.includes(args.day))

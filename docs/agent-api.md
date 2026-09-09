@@ -66,6 +66,8 @@ const result = await window.dameconAgent.callTool(modelCall.name, modelCall.argu
 
 `callTool` 的参数是 JSON object；装备和 ID 使用正整数，改修 `day` 使用 `today` 或 `sun` 到 `sat`，任务 `id` 可为正整数或非空正整数数组。工具调用不会执行游戏 action。页面上的 `getSnapshot` 等旧方法仍保留，并映射到相同工具注册表。
 
+通过 `callTool` 或 MCP 调用时，六个数据工具的 `responseFormat` 默认是 `concise`，需要完整 `raw`、图鉴全集或历史关系时显式传 `responseFormat: "detailed"`。装备、改修和任务列表在 concise 下默认分页（分别为 50、20、50 条）；响应的 `data.pagination` 包含 `total`、`returned` 和 `nextCursor`，将 `nextCursor` 原样传回同一工具并保持筛选条件即可继续读取。旧的 `getSnapshot`、`getFleets`、`getEquipment`、`getLandBases`、`getImprovements`、`getQuests` 兼容 helper 默认请求 detailed，传入 `responseFormat: "concise"` 可改用精简结果。
+
 ## 可视化调用
 
 从 Damecon 新标签页点击 `Agent Tools · 工具调试`，即可打开内置的工具调试入口。页面列出每个工具的描述并按 `inputSchema` 生成表单；改修的 `day`、任务的 `mode` 使用枚举下拉，装备类别会读取当前类别名称和数量，任务 ID 支持单个或多个 ID。没有参数的工具会省略空参数；正整数等非法值会在提交前拦截。
@@ -82,7 +84,7 @@ const result = await window.dameconAgent.callTool(modelCall.name, modelCall.argu
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "revision": 1,
   "requestedAt": "2026-09-09T00:00:00.000Z",
   "capturedAt": "2026-09-09T00:00:00.010Z",
@@ -95,7 +97,7 @@ const result = await window.dameconAgent.callTool(modelCall.name, modelCall.argu
 
 `capturedAt` 是这次读取完成的时间，`ageMs` 是本次读取耗时；两者都不是游戏数据距离最近更新事件的时长。`source.status` 为 `live`、`unavailable` 或 `ambiguous`。`live` 表示本次读取成功取得当前 KC3 对象的最近已观察值，并不保证每个页面（例如任务页或陆航页）都已经被访问或填充。扩展尚未就绪、frame 被销毁或读取超时时，返回 `unavailable` 和空数据；同时存在多个 ready KC3 panel 时返回 `ambiguous`/`AMBIGUOUS_SOURCE`，避免混合不同账号。只有状态为 `live` 时，数据才可按当前游戏状态使用。
 
-`getSnapshot().data` 包含 `player`、`fleets`、`landBases`、`equipment` 和 `quests`。舰队记录包含联合舰队类型、远征状态、舰船和槽位，以及 `metrics.fighterBounds`、`metrics.fighterPower`、`metrics.fighterVeteran`、`metrics.eLos`、`metrics.eLos4` 和 `metrics.transport`；基地记录包含航程、各中队，以及 `metrics.sortieFighterBounds`、`metrics.sortieFighterPower`、`metrics.sortieFighterVeteran`、`metrics.defenseInterceptionPower`。装备记录按 KC3 `api_type[2]` 类别，并带有锁定、改修星级、熟练度、图鉴属性和所在位置。`data.reference.shipNames` 提供舰船 master ID 到完整舰名的映射，便于 harness 还原舰名。字段缺失会使用 `null`，并在 `warnings` 中保留读取问题。返回值不含 cookie、token、原始网络 payload 或 HQ 私有 ID。MCP 只转发这些只读工具结果，不提供游戏写操作。
+`getSnapshot().data` 包含 `player`、`fleets`、`landBases`、`equipment` 和 `quests`。舰队记录包含联合舰队类型、远征状态、舰船和槽位，以及 `metrics.fighterBounds`、`metrics.fighterPower`、`metrics.fighterVeteran`、`metrics.eLos`、`metrics.eLos4` 和 `metrics.transport`；基地记录包含航程、各中队，以及 `metrics.sortieFighterBounds`、`metrics.sortieFighterPower`、`metrics.sortieFighterVeteran`、`metrics.defenseInterceptionPower`。装备记录按 KC3 `api_type[2]` 类别，并带有锁定、改修星级、熟练度、图鉴属性和所在位置；舰船槽位、陆航中队和装备位置会尽可能同级提供 `name`、`shipName`、`fleetName`、`baseName`。`data.reference.shipNames` 和 `data.reference.equipmentNames` 提供 master ID 到完整名称的映射，便于 harness 还原舰名和装备名。字段缺失会使用 `null`，并在 `warnings` 中保留读取问题。返回值不含 cookie、token、原始网络 payload 或 HQ 私有 ID。MCP 只转发这些只读工具结果，不提供游戏写操作。
 
 ## 安全边界
 

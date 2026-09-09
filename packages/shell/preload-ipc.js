@@ -42,15 +42,19 @@ export const injectAgentApi = () => {
     ipcRenderer.invoke('agent-api-read', { operation, args })
   const callTool = (name, args = {}) =>
     ipcRenderer.invoke('agent-api-read', { operation: 'call-tool', name, args })
+  const legacyArgs = (args) =>
+    args === undefined
+      ? { responseFormat: 'detailed' }
+      : Object.assign({ responseFormat: 'detailed' }, args)
   const api = {
     listTools: () => request('list-tools'),
     callTool: (name, args) => callTool(name, args),
-    getSnapshot: () => callTool('damecon_get_snapshot'),
-    getFleets: () => callTool('damecon_get_fleets'),
-    getEquipment: (filters) => callTool('damecon_get_equipment', filters),
-    getLandBases: () => callTool('damecon_get_land_bases'),
-    getImprovements: (filters) => callTool('damecon_get_improvements', filters),
-    getQuests: (filters) => callTool('damecon_get_quests', filters),
+    getSnapshot: (args) => callTool('damecon_get_snapshot', legacyArgs(args)),
+    getFleets: (args) => callTool('damecon_get_fleets', legacyArgs(args)),
+    getEquipment: (filters) => callTool('damecon_get_equipment', legacyArgs(filters)),
+    getLandBases: (args) => callTool('damecon_get_land_bases', legacyArgs(args)),
+    getImprovements: (filters) => callTool('damecon_get_improvements', legacyArgs(filters)),
+    getQuests: (filters) => callTool('damecon_get_quests', legacyArgs(filters)),
     getSchema: () => callTool('damecon_get_schema'),
     health: () => callTool('damecon_health'),
     getMcpStatus: () => ipcRenderer.invoke('agent-mcp-control', { operation: 'get-status' }),

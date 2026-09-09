@@ -156,6 +156,10 @@ function collectKc3Snapshot() {
           : (master._ship && master._ship[id]) || (master.ships && master.ships[id]),
       null,
     )
+  // Keep names for every observed ship, including ships outside a fleet.  The
+  // equipment list is built from the complete ship manager below, so a
+  // location can refer to an unassigned ship as well as a fleet member.
+  const shipNamesByRoster = {}
   const shipRecord = (ship, fleetId, slot) => {
     if (!ship) return null
     const shipId = number(ship.rosterId != null ? ship.rosterId : ship.id)
@@ -172,6 +176,11 @@ function collectKc3Snapshot() {
         ? ship.api_onslot.slice()
         : []
     const ex = ship.ex_item != null ? ship.ex_item : ship.api_slot_ex
+    const shipName = read(
+      () => (typeof ship.name === 'function' ? ship.name() : meta && (meta.api_name || meta.name)),
+      null,
+    )
+    if (shipId != null) shipNamesByRoster[String(shipId)] = shipName || null
     items.forEach((itemId, index) =>
       addGear(itemId, {
         kind: 'ship',
@@ -186,11 +195,7 @@ function collectKc3Snapshot() {
       id: shipId,
       rosterId: shipId,
       masterId,
-      name: read(
-        () =>
-          typeof ship.name === 'function' ? ship.name() : meta && (meta.api_name || meta.name),
-        null,
-      ),
+      name: shipName,
       level: number(ship.level != null ? ship.level : ship.api_lv),
       hp: Array.isArray(ship.hp) ? ship.hp.slice() : null,
       fuel: number(ship.fuel),
@@ -485,10 +490,6 @@ function collectKc3Snapshot() {
       if (gear && !seen.has(Number(id))) addGear(id, { kind: 'unknown' })
     })
   const instances = Array.from(seen.values())
-  instances.forEach((item) => {
-    if (item.location && item.location.kind === 'conflict')
-      ownershipConflicts.push({ itemId: item.itemId, locations: item.locations || [] })
-  })
   const categoriesMap = new Map()
   instances.forEach((item) => {
     const id = item.type == null ? null : item.type
@@ -534,6 +535,7 @@ function collectKc3Snapshot() {
             : number(q && (q.status ?? q.state))
       return {
         id: numericId,
+        name: meta.name ?? null,
         status,
         type: number(q && q.type),
         label: number(q && q.label),
@@ -552,12 +554,20 @@ function collectKc3Snapshot() {
         },
       }
     })
+    const byId = new Map(items.map((item) => [String(item.id), item]))
+    const details = (ids) =>
+      (Array.isArray(ids) ? ids : []).map((id) => ({
+        id,
+        name: (byId.get(String(id)) && byId.get(String(id)).name) || null,
+      }))
     return {
       observed: true,
       statusMeaning: { 1: 'open', 2: 'active', 3: 'closed_or_reward_ready_as_recorded' },
       completeness: 'last_observed',
       currentAvailable: Array.isArray(qm.open) ? qm.open.map((id) => number(id) ?? id) : [],
       accepted: Array.isArray(qm.active) ? qm.active.map((id) => number(id) ?? id) : [],
+      currentAvailableDetails: details(Array.isArray(qm.open) ? qm.open : []),
+      acceptedDetails: details(Array.isArray(qm.active) ? qm.active : []),
       history: items,
       items,
     }
@@ -607,6 +617,46 @@ function collectKc3Snapshot() {
       : null,
     improvement: pm.improvement || null,
   }
+  const fleetNames = Object.fromEntries(
+    fleets.map((fleet) => [String(fleet.id), fleet.name || null]),
+  )
+  const baseNames = Object.fromEntries(
+    bases.map((base) => [`${String(base.map)}:${String(base.id)}`, base.name || null]),
+  )
+  const enrichLocation = (location) => {
+    if (!location || typeof location !== 'object') return location
+    const baseKey =
+      location.areaId == null || location.baseId == null
+        ? null
+        : `${String(location.areaId)}:${String(location.baseId)}`
+    return Object.assign({}, location, {
+      shipName: location.shipId == null ? null : shipNamesByRoster[String(location.shipId)] || null,
+      fleetName: location.fleetId == null ? null : fleetNames[String(location.fleetId)] || null,
+      baseName: baseKey == null ? null : baseNames[baseKey] || null,
+    })
+  }
+  instances.forEach((item) => {
+    item.location = enrichLocation(item.location)
+    if (Array.isArray(item.locations)) item.locations = item.locations.map(enrichLocation)
+  })
+  fleets.forEach((fleet) =>
+    fleet.ships.forEach((ship) => {
+      ship.slots.forEach((slot) => {
+        slot.name = slot.equipment ? slot.equipment.name || null : null
+      })
+      if (ship.extra)
+        ship.extra.name = ship.extra.equipment ? ship.extra.equipment.name || null : null
+    }),
+  )
+  bases.forEach((base) =>
+    base.planes.forEach((plane) => {
+      plane.name = plane.equipment ? plane.equipment.name || null : null
+    }),
+  )
+  instances.forEach((item) => {
+    if (item.location && item.location.kind === 'conflict')
+      ownershipConflicts.push({ itemId: item.itemId, locations: item.locations || [] })
+  })
   const unassigned = instances.filter((item) => item.location && item.location.kind === 'unknown')
   const equipment = {
     total: instances.length,

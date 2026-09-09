@@ -515,7 +515,16 @@ async function loadKnowledge(extensionPath, language = 'en') {
       })
     }
   }
-  for (const [id, quest] of questMap) quest.potentialPrerequisites = potential.get(id) || []
+  const questRelationDetails = (ids) =>
+    (Array.isArray(ids) ? ids : []).map((id) => ({
+      id,
+      name: questMap.get(String(id))?.name ?? null,
+    }))
+  for (const [id, quest] of questMap) {
+    quest.potentialPrerequisites = potential.get(id) || []
+    quest.mayUnlockDetails = questRelationDetails(quest.mayUnlock)
+    quest.potentialPrerequisiteDetails = questRelationDetails(quest.potentialPrerequisites)
+  }
   const improvements = {
     schedule: byDay,
     entries: schedule,
@@ -533,7 +542,12 @@ async function loadKnowledge(extensionPath, language = 'en') {
     graph: Object.fromEntries(
       Array.from(questMap, ([id, quest]) => [
         id,
-        { mayUnlock: quest.mayUnlock, potentialPrerequisites: quest.potentialPrerequisites },
+        {
+          mayUnlock: quest.mayUnlock,
+          potentialPrerequisites: quest.potentialPrerequisites,
+          mayUnlockDetails: quest.mayUnlockDetails,
+          potentialPrerequisiteDetails: quest.potentialPrerequisiteDetails,
+        },
       ]),
     ),
     source: (questsMetaFile && questsMetaFile.path) || null,

@@ -63,6 +63,10 @@ test('dispatches a whitelisted operation through guarded IPC', async () => {
     'getQuests',
   ])
     bridge[method] = async () => ({ data: method })
+  bridge.getFleets = async (args) => {
+    calls.push(['getFleets'])
+    return { data: { fleets: [{ deckParams: { raw: true }, ships: [] }] } }
+  }
   bridge.getSnapshot = async () => ({
     source: { status: 'live' },
     revision: 1,
@@ -139,15 +143,24 @@ test('dispatches a whitelisted operation through guarded IPC', async () => {
       { senderFrame: { url: 'chrome-extension://ui/agent.html' } },
       { operation: 'fleets' },
     ),
-    { data: 'getFleets' },
+    {
+      data: { fleets: [{ deckParams: { raw: true }, ships: [] }] },
+      responseFormat: 'detailed',
+    },
   )
+  const concise = await calls[0].handler(
+    { senderFrame: { url: 'chrome-extension://ui/agent.html' } },
+    { operation: 'fleets', args: { responseFormat: 'concise' } },
+  )
+  assert.equal(concise.responseFormat, 'concise')
+  assert.equal(concise.data.fleets[0].deckParams, undefined)
   assert.deepEqual(
     await calls[0].handler(
       { senderFrame: { url: 'chrome-extension://ui/agent.html' } },
       { operation: 'health' },
     ),
     {
-      schemaVersion: '1.0',
+      schemaVersion: '1.1',
       revision: 1,
       capturedAt: 'now',
       status: 'ok',
